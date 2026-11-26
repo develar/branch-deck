@@ -4876,20 +4876,23 @@ trial builds of one `CheckSession`: it writes commit objects and the object cach
 1. One check of the current grouping finds the problems: the conflicts, then the proven dangling references, each in
    build order (`brd check --fix` reuses the check it just printed). The changes of every commit ahead of the baseline
    (the object cache, one `log` for the misses) give the line dependencies, with the fixup units, read once.
-2. The direct answer, one trial by the line dependencies alone: every conflicting branch whose commits all depend on the
-   conflicting one is restacked on the branch that holds what it needs, or on a chain of those branches. Only when
-   problems are left are the edges by symbols read.
+2. The direct answer, one trial by the line dependencies alone: every conflicting branch is restacked on the branch
+   that holds what it needs, or on a chain of those branches, unless that stack has a conflict the answer leaves. Of an
+   answer that fixes only some of the branches, the restacks of those are tried again alone. Only when problems are
+   left are the edges by symbols read.
 3. For each problem left the candidates are plans of `plan_move` (a whole issue by the issue groups, a part by a
-   prefix): move the conflicting commit with what depends on it to the branch whose stack has what it needs, pull what
-   it needs in, restack the branch. A move also takes a commit of the branch that uses a name the moved ones declare: by
+   prefix), tried in this order: restack the branch, pull what it needs in, move the conflicting commit with what
+   depends on it to the branch whose stack has what it needs. A change a trial built already is not built again. A move also takes a commit of the branch that uses a name the moved ones declare: by
    the edges by symbols with `branchdeck.symbols on` (`CheckSession::symbol_graph`, read once per session), by the
    declaration patterns of the dangling references (`uses_added_declarations`) for the languages without a grammar
    and with the symbols not on. The same edges keep a commit from leaving a branch whose staying commits use it.
 4. Each candidate is one more check of the plan built so far (`check_until`). A trial of a conflict looks for no
    dangling reference; once the conflicts are done, the dangling references of the plan so far are read from its
    report (no build again), and a trial of a dangling reference looks at the branches it can alter only (the others
-   keep theirs). A dangling reference or a new conflict in a branch the candidate fills extends it. The best candidate
-   that breaks no clean branch and leaves fewer failing ones is kept.
+   keep theirs). A dangling reference or a new conflict in a branch the candidate fills extends it. Of the candidates
+   that break no clean branch and leave fewer failing ones, the least by the failing branches, the emptied ones, the
+   commits that leave the group the user gave them, the rewritten subjects and the commits whose base changes is kept:
+   a dependency is an order of landing, which a stack says, so a restack comes before any move of a grouped commit.
 5. The steps form components by the branches they touch; with several, each component's plan is checked alone, when
    the budget has room for it.
 

@@ -6,18 +6,20 @@
 //!   they need in turn, that neither its branch nor the branches it is built on have; by the changed files (the missing
 //!   commits) only when the lines name none, as for a modify/delete conflict.
 //! - **Candidates**, each a move as `move_plan.rs` plans it (a whole issue by the issue groups, a part by a prefix):
-//!   move the commit and the commits of its branch that depend on it to the branch whose stack holds what it needs;
-//!   pull what it needs into its branch (from a branch stacked on it, from the unassigned commits, or from a branch
-//!   where nothing that stays depends on it); restack its branch on that branch.
+//!   restack its branch on the branch whose stack holds what it needs; pull what it needs into its branch (from a branch
+//!   stacked on it, from the unassigned commits, or from a branch where nothing that stays depends on it); move the
+//!   commit and the commits of its branch that depend on it to that branch. Tried in this order.
 //! - **A dangling reference** that a trial leaves (a name removed, a use left that a commit outside fixes) extends the
 //!   candidate by that commit, so a fix needs no second round for it.
 //! - **Verified.** A candidate is taken only when its trial build has more branches that apply cleanly and no branch that
 //!   applied cleanly before fails. Among them the best by what the user notices: the failing branches, then the emptied
-//!   branches, the commits that change branch or base (a restack changes the base of all its commits), the rewritten
-//!   subjects.
-//! - **The direct answer first.** A conflicting branch that would move whole (every commit of it depends on the
-//!   conflicting one) is restacked on the branch that holds what it needs, or on a chain of the branches that do: one
-//!   trial, by the line dependencies alone, before the symbols are read.
+//!   branches, the commits that leave the group the user gave them, the rewritten subjects, the commits whose base
+//!   changes (every commit of a branch whose stack changes, of the branches built on it too). A dependency is an order of
+//!   landing, which a stack says: a commit leaves its group only where no restack fixes the conflict.
+//! - **The direct answer first.** Each conflicting branch is restacked on the branch that holds what it needs, or on a
+//!   chain of the branches that do: one trial, by the line dependencies alone, before the symbols are read. A restack
+//!   onto a stack with a conflict that the answer leaves is left out, and of a partly verified answer only the restacks
+//!   of the branches it fixes stay.
 //! - **Conflicts before dangling references.** The trials of the conflicts look for no dangling reference, so a dangling
 //!   reference never fails them; the dangling references are searched once the conflicts are done and time is left.
 //! - **Bounded.** A number of trials per problem and in all, and a time from the start of the command; a trial cut by the
@@ -367,9 +369,10 @@ impl<'a> Facts<'a> {
   }
 }
 
-/// How good a verified candidate is, the least first: the failing branches, the emptied branches, the commits that change
-/// branch or base (a restack changes the base of every commit of its branch), the rewritten subjects
-type Score = (usize, usize, usize, usize);
+/// How good a verified candidate is, the least first: the failing branches, the emptied branches, the commits that leave
+/// the group the user gave them, the rewritten subjects, the commits whose base changes (every commit of a restacked
+/// branch and of the branches built on it, and the unassigned commits a branch takes)
+type Score = (usize, usize, usize, usize, usize);
 
 // the search of a fix lives in its own module: it only runs the trial builds of the session (`check.rs`)
 impl CheckSession {
@@ -393,6 +396,7 @@ impl CheckSession {
       report: base_report.clone(),
       trials: 0,
       state: SearchState::Complete,
+      tried: HashSet::new(),
     };
     let base_facts = Facts::new(&base_report);
     if base_facts.problems().is_empty() {
@@ -458,7 +462,8 @@ impl CheckSession {
       merge_plan(&mut plan, plan_move(self.snapshot(), &ids, Some(&path))?);
     }
     for (child, parent) in &change.restacks {
-      // the restack replaces a parent that the base plan gave the child: its commits go to the new path
+      // the restack replaces a parent that the base plan gave the child, or its unstack: its commits go to the new path
+      plan.unstack.retain(|branch| branch != child);
       let new_path = format!("{parent}/{child}");
       let replaced: Vec<String> = plan
         .branches
@@ -538,7 +543,7 @@ impl CheckSession {
 /// What a trial gave
 enum Trial {
   Report(Box<CheckReport>),
-  /// The candidate has no plan: not tried
+  /// The candidate has no plan, or a trial built its change already: not tried
   Unplanned,
   /// The check failed: tried, and no answer
   Failed,
@@ -558,6 +563,9 @@ struct Search<'s> {
   report: CheckReport,
   trials: u32,
   state: SearchState,
+  /// The changes tried so far, with what their trial looked for: a candidate of a later round that comes to a change a
+  /// trial already built (the direct answer's restack of the branch, a candidate of two problems) is not built again
+  tried: HashSet<String>,
 }
 
 /// The facts of `report` as the phase counts them
@@ -568,13 +576,16 @@ fn facts_of(report: &CheckReport, conflicts_only: bool) -> Facts<'_> {
 impl Search<'_> {
   /// The trial build of `merged`; a trial of the conflicts looks for no dangling reference, one of the dangling
   /// references only in `affected`. The dangling references it doesn't look for stay as the current report has them
-  fn trial(&self, merged: &Change, conflicts_only: bool, affected: &[String]) -> Trial {
+  fn trial(&mut self, merged: &Change, conflicts_only: bool, affected: &[String]) -> Trial {
     if self.run.stopped() {
       return Trial::Stopped;
     }
     let Ok(plan) = self.session.plan_of(self.base_plan, merged) else {
       return Trial::Unplanned;
     };
+    if !self.tried.insert(format!("{conflicts_only} {:?} {:?} {affected:?}", merged.moves, merged.restacks)) {
+      return Trial::Unplanned;
+    }
     let dangling_of: &[String] = if conflicts_only { &[] } else { affected };
     let run = self.run;
     match self.session.check_until(Some(&plan), None, Some(dangling_of), &|| run.stopped()) {
@@ -611,49 +622,71 @@ impl Search<'_> {
       .say(&format!("trial {}/{}: {} … {outcome}", self.trials, self.run.budget.trials, describe_change(candidate)));
   }
 
-  /// The direct answer: each conflicting branch that would move whole restacked on the branch that holds the commits it
-  /// needs (or on a chain of them), by the line dependencies alone, in one trial
+  /// The direct answer: each conflicting branch restacked on the branch that holds the commits it needs (or on a chain
+  /// of them), by the line dependencies alone, in one trial. A restack onto a stack with a conflict that the answer
+  /// leaves is left out; of an answer that fixes only some of the branches, the restacks of those are tried again
+  /// alone, so the rounds search the others on the base they have
   fn direct(&mut self) -> Result<(), RegroupError> {
     let graph = self.session.dependency_graph(false)?;
-    let facts = Facts::of_conflicts(&self.report);
-    let mut direct = Change::default();
-    let mut fixes: Vec<&str> = Vec::new();
+    let report = self.report.clone();
+    let facts = Facts::of_conflicts(&report);
+    let mut restacks: Vec<(String, Change)> = Vec::new();
     for problem in facts.problems() {
       let CheckOutcome::Conflict { commit, files } = &problem.outcome else { continue };
-      if let Some(restack) = whole_restack(&facts, problem, commit, files, &graph, self.lines)
-        && let Some(merged) = direct.merged(&restack)
-      {
-        direct = merged;
-        fixes.push(&problem.name);
+      if let Some(restack) = restack_on_needs(&facts, problem, commit, files, &graph) {
+        restacks.push((problem.name.clone(), restack));
       }
     }
-    if direct.steps.is_empty() {
-      return Ok(());
-    }
-    if self.trials as usize >= self.run.budget.trials {
-      self.state = SearchState::Budget;
-      return Ok(());
-    }
-    let affected = facts.affected_by(&direct);
-    let trial = match self.trial(&direct, true, &affected) {
-      Trial::Report(trial) => *trial,
-      Trial::Unplanned => return Ok(()),
-      Trial::Failed => {
-        self.trials += 1;
-        self.say_trial(fixes.first().copied().unwrap_or_default(), &direct, &facts, None, false);
-        return Ok(());
+    loop {
+      let restacked: HashSet<String> = restacks.iter().map(|(name, _)| name.clone()).collect();
+      let count = restacks.len();
+      restacks.retain(|(_, change)| !builds_on_a_conflict(&facts, change, &restacked));
+      if restacks.len() == count {
+        break;
       }
-      Trial::Stopped => {
-        self.state = self.run.stop_state();
-        return Ok(());
+    }
+    let mut best: Option<(Change, CheckReport)> = None;
+    while !restacks.is_empty() {
+      let mut direct = Change::default();
+      for (_, restack) in &restacks {
+        if let Some(merged) = direct.merged(restack) {
+          direct = merged;
+        }
       }
-    };
-    self.trials += 1;
-    let trial_facts = Facts::of_conflicts(&trial);
-    let verified = score_of(&facts, &trial_facts, &direct).is_some();
-    self.say_trial(fixes.first().copied().unwrap_or_default(), &direct, &facts, Some(&trial_facts), verified);
-    if verified {
-      debug!(?fixes, "verified the direct answer");
+      let first = restacks[0].0.clone();
+      if self.trials as usize >= self.run.budget.trials {
+        self.state = SearchState::Budget;
+        break;
+      }
+      let affected = facts.affected_by(&direct);
+      let trial = match self.trial(&direct, true, &affected) {
+        Trial::Report(trial) => *trial,
+        Trial::Unplanned => break,
+        Trial::Failed => {
+          self.trials += 1;
+          self.say_trial(&first, &direct, &facts, None, false);
+          break;
+        }
+        Trial::Stopped => {
+          self.state = self.run.stop_state();
+          break;
+        }
+      };
+      self.trials += 1;
+      let trial_facts = Facts::of_conflicts(&trial);
+      let verified = score_of(&facts, &trial_facts, &direct).is_some();
+      self.say_trial(&first, &direct, &facts, Some(&trial_facts), verified);
+      let count = restacks.len();
+      restacks.retain(|(name, _)| trial_facts.branch(name).is_none_or(|check| trial_facts.is_clean(check)));
+      if verified {
+        debug!(fixed = restacks.len(), of = count, "verified the direct answer");
+        best = Some((direct, trial));
+      }
+      if restacks.len() == count {
+        break;
+      }
+    }
+    if let Some((direct, trial)) = best {
       self.change = direct;
       self.report = trial;
     }
@@ -679,7 +712,8 @@ impl Search<'_> {
     // the problems no candidate fixed, by branch and commit: not tried again while the report keeps them
     let mut given_up: HashSet<(String, String)> = HashSet::new();
     'rounds: loop {
-      let facts = facts_of(&self.report, conflicts_only);
+      let report = self.report.clone();
+      let facts = facts_of(&report, conflicts_only);
       let problem = facts
         .problems()
         .into_iter()
@@ -875,8 +909,8 @@ fn fork_child<'a>(facts: &Facts<'a>, branch: &'a BranchCheck, target: &str) -> O
 }
 
 /// The direct answer for the conflict of `branch` at `commit`: the branch restacked on what holds the commits it needs,
-/// when every commit of it depends on `commit` (a move would take the whole branch) and an owner holds each of them
-fn whole_restack(facts: &Facts, branch: &BranchCheck, commit: &str, files: &[String], graph: &Graph, lines: &HashMap<String, Vec<FileLines>>) -> Option<Change> {
+/// when an owner holds each of them; its other commits stay in it, as the user grouped them
+fn restack_on_needs(facts: &Facts, branch: &BranchCheck, commit: &str, files: &[String], graph: &Graph) -> Option<Change> {
   let present: HashSet<&str> = facts.chain(&branch.name).into_iter().collect();
   let mut needed = needed_commits(facts, graph, commit, &present);
   if needed.is_empty() {
@@ -885,11 +919,19 @@ fn whole_restack(facts: &Facts, branch: &BranchCheck, commit: &str, files: &[Str
   if needed.is_empty() || needed.iter().any(|id| facts.group(id).is_none()) {
     return None;
   }
-  if dependents_in(graph, lines, branch, commit).len() < branch.commits.len() {
-    return None;
-  }
   let owners: BTreeSet<&str> = needed.iter().filter_map(|id| facts.group(id)).collect();
   restack_on_owners(facts, graph, branch, &owners)
+}
+
+/// Whether `change` restacks a branch onto a stack with a conflict of a branch that `restacked` (the branches the
+/// direct answer restacks) leaves as it is: that restack would build on the conflict
+fn builds_on_a_conflict(facts: &Facts, change: &Change, restacked: &HashSet<String>) -> bool {
+  change.restacks.values().any(|parent| {
+    facts
+      .chain(parent)
+      .into_iter()
+      .any(|name| !restacked.contains(name) && facts.branch(name).is_some_and(|check| matches!(check.outcome, CheckOutcome::Conflict { .. })))
+  })
 }
 
 /// The commit a problem is about: the conflicting commit, or the first commit a dangling reference names
@@ -984,12 +1026,17 @@ fn candidates(facts: &Facts, branch: &BranchCheck, graph: &Graph, lines: &HashMa
       let unassigned: Vec<String> = needed.iter().filter(|id| facts.group(id).is_none()).cloned().collect();
       let top = stack_top(&owners, |owner| facts.chain(owner));
 
-      // restack the branch on the branch that has what it needs, or on a chain of the branches that do: no rewrite, but
-      // the base of its pull request changes
-      if unassigned.is_empty()
-        && let Some(change) = restack_on_owners(facts, graph, branch, &owners)
-      {
-        candidates.push(change);
+      // move the commit, and what of its branch depends on it, to that branch, the unassigned commits it needs too
+      if let Some(top) = top.filter(|top| *top != branch.name) {
+        let moved = dependents_in(graph, lines, branch, commit);
+        if moved.len() < branch.commits.len() {
+          let mut change = Change::default();
+          if !unassigned.is_empty() {
+            change.add_move(FixStepKind::PullIn, unassigned.clone(), Vec::new(), top, &branch.name);
+          }
+          change.add_move(FixStepKind::Move, moved, vec![branch.name.clone()], top, &branch.name);
+          candidates.push(change);
+        }
       }
 
       // pull what it needs into the branch, when nothing left behind depends on it
@@ -998,17 +1045,12 @@ fn candidates(facts: &Facts, branch: &BranchCheck, graph: &Graph, lines: &HashMa
         candidates.push(Change::moving(FixStepKind::PullIn, needed.clone(), from, &branch.name, &branch.name));
       }
 
-      // move the commit, and what of its branch depends on it, to that branch, the unassigned commits it needs too
-      if let Some(top) = top.filter(|top| *top != branch.name) {
-        let moved = dependents_in(graph, lines, branch, commit);
-        if moved.len() < branch.commits.len() {
-          let mut change = Change::default();
-          if !unassigned.is_empty() {
-            change.add_move(FixStepKind::PullIn, unassigned, Vec::new(), top, &branch.name);
-          }
-          change.add_move(FixStepKind::Move, moved, vec![branch.name.clone()], top, &branch.name);
-          candidates.push(change);
-        }
+      // restack the branch on the branch that has what it needs, or on a chain of the branches that do: its commits stay
+      // in the group the user gave them, only the base of its pull request changes
+      if unassigned.is_empty()
+        && let Some(change) = restack_on_owners(facts, graph, branch, &owners)
+      {
+        candidates.push(change);
       }
     }
     CheckOutcome::Ok { .. } => {
@@ -1035,7 +1077,7 @@ fn candidates(facts: &Facts, branch: &BranchCheck, graph: &Graph, lines: &HashMa
     }
     _ => {}
   }
-  // tried last to first: the move first, then the pull, then the restack
+  // tried last to first: of a conflict the restack first, then the pull, then the move
   candidates
 }
 
@@ -1125,8 +1167,18 @@ fn score_of(current: &Facts, trial: &Facts, change: &Change) -> Option<Score> {
     return None;
   }
   let emptied = current.report.branches.iter().filter(|check| trial.branch(&check.name).is_none()).count();
-  let restacked: usize = change.restacks.keys().filter_map(|child| current.branch(child)).map(|check| check.commits.len()).sum();
-  Some((bad, emptied, change.moves.len() + restacked, trial.report.regroup.changed_count()))
+  // a commit the user grouped that goes to another branch leaves its group; an unassigned one only gets a base
+  let (regrouped, taken): (Vec<_>, Vec<_>) = change.moves.iter().partition(|(id, _)| current.group(id).is_some());
+  let regrouped = regrouped.into_iter().filter(|(id, target)| current.group(id) != Some(target.as_str())).count();
+  // a restack changes the base of every commit of the branch and of the branches built on it
+  let rebased: usize = current
+    .report
+    .branches
+    .iter()
+    .filter(|check| current.chain(&check.name).iter().any(|branch| change.restacks.contains_key(*branch)))
+    .map(|check| check.commits.len())
+    .sum();
+  Some((bad, emptied, regrouped, trial.report.regroup.changed_count(), rebased + taken.len()))
 }
 
 /// The part of `change` that `steps` make

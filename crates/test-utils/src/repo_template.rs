@@ -1771,7 +1771,7 @@ pub mod templates {
   }
 
   /// The last commit of `ui` changes a line of the settings that `api` (stacked on `core`) changed
-  /// first, so its copy conflicts with markers; the conflict fix moves it to `api`
+  /// first, so its copy conflicts with markers; the conflict fix stacks `ui` on `api`, both its commits in it
   pub fn conflict_fix() -> RepoTemplate {
     let settings = |timeout: &str| {
       format!("export const host = \"localhost\"\nexport const port = 8080\nexport const timeout = {timeout}\nexport const retries = 1\nexport const verbose = false\n")

@@ -1546,9 +1546,9 @@ repository lock.
   needs comes into it from `from`; none for unassigned commits) or `restack` (`fixes` is stacked on `to`). `unresolved`
   names the branches no candidate fixed; `search` is `complete`, or `budget` when the trial or time limit stopped it,
   with the best plan so far (run it again: the merges of the first run are cached). `--max-trials N` (12) and
-  `--time-budget SECONDS` (180, from the start of the command) set the limits. A branch that conflicts as a whole is
-  restacked first, in one trial, on the branch (or the chain of branches) that holds what it needs; the dangling
-  references come after the conflicts. The search prints a line per trial on stderr (`trial 3/12: restack
+  `--time-budget SECONDS` (180, from the start of the command) set the limits. Each conflicting branch is restacked
+  first, in one trial, on the branch (or the chain of branches) that holds what it needs: a commit leaves the group the
+  user gave it only where no restack fixes the conflict; the dangling references come after the conflicts. The search prints a line per trial on stderr (`trial 3/12: restack
   control-runtime-peer-cancel on cloud-spawner-exit … verified (41 s)`). See
   [Conflict Fix](../../openspec/specs/branch/conflict-fix/spec.md).
 

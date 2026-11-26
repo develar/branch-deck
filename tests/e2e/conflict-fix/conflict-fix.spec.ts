@@ -1,7 +1,7 @@
 // @spec openspec/specs/branch/conflict-fix/spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, verifyCommitCount } from "../helpers/branch-helpers"
+import { branchTree, collapseBranch, expandBranch, findBranchRow, getBranchDetailsRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { diffRows, diffSides } from "../helpers/diff-helpers"
 import { availableRobots, mergeRunningRobot, robot, robotUrl, willFail } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
@@ -28,10 +28,14 @@ test.describe("Conflict fix", () => {
     await expect(findBranchRow(page, "ui").getByTestId("branch-status")).toHaveText("merge conflict")
   })
 
-  test("should offer the move a trial build verified, apply it and undo it", async ({ page }) => {
+  test("should offer the stack a trial build verified, apply it and undo it", async ({ page }) => {
     // the search runs when the conflict is shown
     const fix = await foundFix(page)
-    await expect(fix).toContainText("Move “Show the timeout in seconds” to api")
+    // the commit of ui needs api, the other commit of ui doesn't: ui lands after api, both commits in it
+    await expect(fix).toContainText("Stack ui on api")
+    await expect(fix).not.toContainText("Move")
+    const before = await branchTree(page)
+    expect(before).toContain("ui@0")
     await expect(fix.getByTestId("fix-result")).toHaveText("Afterwards ui applies cleanly.")
     // the conflict itself: the merge of settings.js in three columns, named by the sides. Both sides changed the same
     // word of the timeout, so the proposed result keeps the base there
@@ -48,12 +52,12 @@ test.describe("Conflict fix", () => {
     await runAndWaitForSync(page, () => fix.getByTestId("apply-conflict-fix").click())
     await expect(page.getByText("Fixed the conflict of ui")).toBeVisible()
     await expect(findBranchRow(page, "ui").getByTestId("branch-status")).not.toHaveText("merge conflict")
-    await verifyCommitCount(findBranchRow(page, "api"), 2)
-    // the fix shows where the commit went
-    await expect(getBranchCommitRow(page, "api", "Show the timeout in seconds")).toHaveAttribute("data-selected", "true")
+    await expect.poll(() => branchTree(page)).toEqual(["core@0", "api@1", "ui@2"])
+    await verifyCommitCount(findBranchRow(page, "api"), 1)
+    await verifyCommitCount(findBranchRow(page, "ui"), 2)
 
     await runAndWaitForSync(page, () => page.getByRole("button", { name: "Undo" }).click())
-    await verifyCommitCount(findBranchRow(page, "api"), 1)
+    await expect.poll(() => branchTree(page)).toEqual(before)
     await expect(findBranchRow(page, "ui").getByTestId("branch-status")).toHaveText("merge conflict")
   })
 
@@ -91,7 +95,7 @@ test.describe("Conflict fix while Patronus answers", () => {
   })
 })
 
-// the fix of ui moves its commit to api, which has what it needs: a Safe Push of api lands that without the fix
+// the fix of ui stacks it on api, which has what it needs: a Safe Push of api lands that without the fix
 const API_ROBOT = robot("api", "api-robot")
 
 test.describe("Conflict fix while a Safe Push holds what it brings", () => {
@@ -101,7 +105,7 @@ test.describe("Conflict fix while a Safe Push holds what it brings", () => {
     const fix = await foundFix(page)
     await expect(fix).toContainText("Wait for the Safe Push of api")
     await expect(fix.getByTestId("fix-hold")).toHaveText("api has what ui needs: once its Safe Push merges, Update Project applies ui cleanly, without a fix.")
-    await expect(fix).toContainText("Or fix it now: Move “Show the timeout in seconds” to api")
+    await expect(fix).toContainText("Or fix it now: Stack ui on api")
 
     // the robot and its row, where its cancel is
     await fix.getByRole("button", { name: "Open in Patronus" }).click()
@@ -115,7 +119,8 @@ test.describe("Conflict fix while a Safe Push holds what it brings", () => {
     // the fix is local: the robot lands the copy it took, so the hold disables nothing
     await runAndWaitForSync(page, () => fix.getByTestId("apply-conflict-fix").click())
     await expect(page.getByText("Fixed the conflict of ui")).toBeVisible()
-    await verifyCommitCount(apiRow, 2)
+    await expect.poll(() => branchTree(page)).toEqual(["core@0", "api@1", "ui@2"])
+    await verifyCommitCount(apiRow, 1)
   })
 
   test("should make the fix the way while the Safe Push that holds what it brings is failing, its restart and cancel beside it", async ({
@@ -127,7 +132,7 @@ test.describe("Conflict fix while a Safe Push holds what it brings", () => {
     await syncAndWaitForBranches()
     const fix = await foundFix(page)
     await expect(fix.getByTestId("fix-hold")).toHaveText("The Safe Push of api is failing, so waiting for it lands nothing: fix the conflict now, or restart the Safe Push.")
-    await expect(fix).toContainText("Move “Show the timeout in seconds” to api")
+    await expect(fix).toContainText("Stack ui on api")
     await expect(fix).not.toContainText("Wait for the Safe Push")
 
     await runAndWaitForAnswer(page, "execute", () => fix.getByRole("button", { name: "Cancel Safe Push" }).click())

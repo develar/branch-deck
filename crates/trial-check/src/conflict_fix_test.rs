@@ -41,6 +41,13 @@ fn find_fix(repo: &TestRepo, budget: FixBudget) -> ConflictFix {
   session(repo).find_conflict_fix(None, None, &run(budget)).unwrap()
 }
 
+/// The fix of a search that ran to its end and fixed every branch
+fn find_complete_fix(repo: &TestRepo) -> ConflictFix {
+  let fix = find_fix(repo, FixBudget::default());
+  assert_eq!((fix.search, fix.unresolved.as_slice()), (SearchState::Complete, &[] as &[String]), "{fix:?}");
+  fix
+}
+
 fn step(kind: FixStepKind, commits: &[&String], from: &[&str], to: &str, fixes: &str) -> FixStep {
   FixStep {
     kind,
@@ -60,18 +67,39 @@ fn assert_applies(repo: &TestRepo, fix: &ConflictFix) {
   }
 }
 
+/// `other` keeps a commit that needs nothing of `feature`: moving its last commit to `feature` would split the group the
+/// user made, so the branch is stacked on `feature` whole, the order of landing its commit needs
 #[test]
-fn a_commit_moves_to_the_branch_whose_stack_has_what_it_needs() {
-  let (repo, again) = other_needs_feature(&[("(other) Add other", "other.txt", "other\n")]);
+fn a_commit_whose_branch_keeps_other_commits_restacks_its_branch_on_what_it_needs() {
+  let (repo, _) = other_needs_feature(&[("(other) Add other", "other.txt", "other\n")]);
 
-  let fix = find_fix(&repo, FixBudget::default());
+  let fix = find_complete_fix(&repo);
 
-  assert_eq!(fix.search, SearchState::Complete);
-  assert_eq!(fix.unresolved, Vec::<String>::new());
-  assert_eq!(fix.components[0].steps, [step(FixStepKind::Move, &[&again], &["other"], "feature", "other")]);
+  assert_eq!(fix.trials, 1, "the direct answer verified at once: {fix:?}");
+  assert_eq!(fix.components[0].steps, [step(FixStepKind::Restack, &[], &[], "feature", "other")]);
   assert_eq!(fix.components[0].fixed, ["other"]);
+  assert_eq!(fix.components[0].rewritten, 0, "the commits keep their group");
   assert_eq!(fix.components[0].holders, ["feature"], "what the commit needs is in feature");
   assert_applies(&repo, &fix);
+}
+
+/// `b`, stacked on `a`, changes a line that the last commit of `a` changes again: no restack fixes a parent that needs its
+/// child, so the commit moves; the other conflict of the repository is still a restack
+#[test]
+fn a_commit_moves_only_where_no_restack_fixes_the_conflict() {
+  let (repo, _) = other_needs_feature(&[("(other) Add other", "other.txt", "other\n")]);
+  let more = parent_needs_its_child(&repo);
+
+  let fix = find_complete_fix(&repo);
+
+  let steps: Vec<FixStep> = fix.components.iter().flat_map(|component| component.steps.clone()).collect();
+  assert_eq!(
+    steps,
+    [
+      step(FixStepKind::Restack, &[], &[], "feature", "other"),
+      step(FixStepKind::Move, &[&more], &["a"], "b", "a")
+    ]
+  );
 }
 
 #[test]
@@ -122,12 +150,18 @@ fn an_unassigned_commit_the_branch_needs_is_pulled_in() {
   assert_applies(&repo, &fix);
 }
 
+/// `a` adds a file, `b` stacked on it changes its first line, and the last commit of `a` changes that line again: the
+/// commit that conflicts
+fn parent_needs_its_child(repo: &TestRepo) -> String {
+  repo.create_commit("(a) Add list", "list.txt", "1\n2\n3\n");
+  repo.create_commit("(a/b) Change list", "list.txt", "one\n2\n3\n");
+  repo.create_commit("(a) Change list more", "list.txt", "ONE\n2\n3\n")
+}
+
 #[test]
 fn a_parent_that_needs_a_commit_of_its_child_gives_its_own_commit_to_the_child() {
   let repo = baseline_repo();
-  repo.create_commit("(a) Add lib", "lib.txt", "1\n2\n3\n");
-  repo.create_commit("(a/b) Change lib", "lib.txt", "one\n2\n3\n");
-  let more = repo.create_commit("(a) Change lib more", "lib.txt", "ONE\n2\n3\n");
+  let more = parent_needs_its_child(&repo);
 
   let fix = find_fix(&repo, FixBudget::default());
 
@@ -198,10 +232,11 @@ fn nothing_to_fix_is_a_complete_search_without_components() {
 /// with them on: the names come from the lines, not the syntax trees
 #[test]
 fn the_fixes_are_the_same_with_the_symbols_off() {
-  let (stacked, again) = other_needs_feature(&[("(other) Add other", "other.txt", "other\n")]);
+  let stacked = baseline_repo();
   stacked.set_config("branchdeck.symbols", "off").unwrap();
+  let more = parent_needs_its_child(&stacked);
   let fix = find_fix(&stacked, FixBudget::default());
-  assert_eq!(fix.components[0].steps, [step(FixStepKind::Move, &[&again], &["other"], "feature", "other")]);
+  assert_eq!(fix.components[0].steps, [step(FixStepKind::Move, &[&more], &["a"], "b", "a")]);
   assert_applies(&stacked, &fix);
 
   let repo = baseline_repo();
@@ -223,7 +258,8 @@ fn processes(git: &GitCommandExecutor, subcommand: &str) -> u32 {
 /// the commits' changes (`ObjectCache::disabled` reads them again on every ask)
 #[test]
 fn the_trials_of_a_search_detect_a_parent_without_commits_once() {
-  let (repo, again) = other_needs_feature(&[("(other) Add other", "other.txt", "other\n")]);
+  let repo = baseline_repo();
+  let more = parent_needs_its_child(&repo);
   let head = repo.head();
   let lost = repo.create_commit("(ghost) Add ghost", "ghost.txt", "ghost\n");
   repo.reset_hard(&head).unwrap();
@@ -239,8 +275,8 @@ fn the_trials_of_a_search_detect_a_parent_without_commits_once() {
   let session = CheckSession::open(&git, path, PREFIX, &ObjectCache::disabled()).unwrap();
   let fix = session.find_conflict_fix(None, None, &run(FixBudget::default())).unwrap();
 
-  assert_eq!(fix.components[0].steps, [step(FixStepKind::Move, &[&again], &["other"], "feature", "other")]);
-  assert!(fix.trials >= 3, "{fix:?}");
+  assert_eq!(fix.components[0].steps, [step(FixStepKind::Move, &[&more], &["a"], "b", "a")]);
+  assert!(fix.trials >= 2, "{fix:?}");
   // the baseline of the detection resolved once, its notes read once, and one `log -p` for the changes of the commits
   assert_eq!((processes(&git, "rev-parse"), processes(&git, "log")), (check.0, check.1 + 1));
 }
@@ -269,10 +305,8 @@ fn a_leaf_whose_commit_needs_two_other_leaves_is_restacked_on_their_chain_in_one
 #[test]
 fn a_search_out_of_budget_ends_with_the_best_plan_so_far() {
   let (repo, _) = other_needs_feature(&[("(other) Add other", "other.txt", "other\n")]);
-  // a second conflict, of a branch of one commit: the direct answer restacks it
-  repo.create_commit("(base2) Add lib2", "lib2.txt", "a\nb\nc\n");
-  repo.create_commit("(base2/feature2) Change lib2", "lib2.txt", "a\nB\nc\n");
-  repo.create_commit("(other2) Change lib2 again", "lib2.txt", "a\nBB\nc\n");
+  // a second conflict, that no restack fixes: the direct answer restacks only other, the rounds are out of trials
+  parent_needs_its_child(&repo);
 
   let fix = find_fix(
     &repo,
@@ -285,8 +319,8 @@ fn a_search_out_of_budget_ends_with_the_best_plan_so_far() {
   assert_eq!(fix.search, SearchState::Budget);
   assert_eq!(fix.trials, 1);
   assert_eq!(fix.components.len(), 1, "{fix:?}");
-  assert_eq!(fix.components[0].steps, [step(FixStepKind::Restack, &[], &[], "feature2", "other2")]);
-  assert_eq!(fix.unresolved, ["other"]);
+  assert_eq!(fix.components[0].steps, [step(FixStepKind::Restack, &[], &[], "feature", "other")]);
+  assert_eq!(fix.unresolved, ["a"]);
 }
 
 #[test]
@@ -325,10 +359,7 @@ fn each_trial_is_a_line_of_progress() {
 
   let lines = lines.into_inner().unwrap();
   assert_eq!(lines.len(), 1 + fix.trials as usize, "{lines:?}");
-  assert!(
-    lines.iter().any(|line| line.starts_with("trial 1/24: move 1 commit of other to feature … verified (")),
-    "{lines:?}"
-  );
+  assert!(lines.iter().any(|line| line.starts_with("trial 1/24: restack other on feature … verified (")), "{lines:?}");
 }
 
 #[test]
@@ -367,6 +398,26 @@ fn a_restack_on_top_of_a_plan_keeps_the_parent_the_plan_gives() {
   assert_eq!(fix.components[0].steps, [step(FixStepKind::Restack, &[], &["root"], "a", "p")]);
   let paths: Vec<&String> = fix.components[0].plan.branches.keys().collect();
   assert_eq!(paths, ["a/p", "p/c"]);
+  assert_applies(&repo, &fix);
+}
+
+/// The user's plan makes `feature` a root, where its commit misses the one of `base`: the fix stacks it on `base` again,
+/// in place of the unstack, never both
+#[test]
+fn a_restack_on_top_of_a_plan_that_unstacks_the_branch_replaces_the_unstack() {
+  let repo = baseline_repo();
+  repo.create_commit("(base) Add lib", "lib.txt", "a\nb\nc\n");
+  repo.create_commit("(base/feature) Change lib", "lib.txt", "a\nB\nc\n");
+  let plan = RegroupPlan {
+    unstack: vec!["feature".to_string()],
+    ..RegroupPlan::default()
+  };
+
+  let fix = session(&repo).find_conflict_fix(Some(&plan), None, &run(FixBudget::default())).unwrap();
+
+  assert_eq!(fix.unresolved, Vec::<String>::new(), "{fix:?}");
+  assert_eq!(fix.components[0].steps, [step(FixStepKind::Restack, &[], &[], "base", "feature")]);
+  assert_eq!(fix.components[0].plan.unstack, Vec::<String>::new());
   assert_applies(&repo, &fix);
 }
 

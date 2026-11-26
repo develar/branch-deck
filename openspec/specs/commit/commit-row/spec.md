@@ -2504,7 +2504,7 @@ conflicts ("1 conflict", "3 conflicts") or "modify/delete".
 - **THEN** they are one list, a collapsible item per file, the first open
 - **AND** each item has the number of its conflicts ("1 conflict", "3 conflicts") or "modify/delete"
   [@test] crates/git-ops/src/merge_conflict_tests.rs (`the_conflicts_of_a_merged_file_are_counted_by_their_start_markers`)
-  [@test] tests/e2e/conflict-fix/conflict-fix.spec.ts (`should offer the move a trial build verified, apply it and undo it`)
+  [@test] tests/e2e/conflict-fix/conflict-fix.spec.ts (`should offer the stack a trial build verified, apply it and undo it`)
 
 ### Requirement: Conflict view: The merge of a file shows in three read-only columns
 
@@ -2517,7 +2517,7 @@ copied onto (ours), right the commit (theirs), named above them.
 - **AND** left the branch the commit is copied onto (ours), right the commit (theirs), named above them
   [@test] src/lib/diff/rows.test.ts (`aligns the blocks of a merge in three columns, the middle the result, without the empty last line`)
   [@test] tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`shows the merge in three columns, with the result the engine proposes and the base`)
-  [@test] tests/e2e/conflict-fix/conflict-fix.spec.ts (`should offer the move a trial build verified, apply it and undo it`)
+  [@test] tests/e2e/conflict-fix/conflict-fix.spec.ts (`should offer the stack a trial build verified, apply it and undo it`)
 
 ### Requirement: Conflict view: The middle column shows the proposed result or the base
 
