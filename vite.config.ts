@@ -198,6 +198,8 @@ export default defineConfig({
       "**/*.md",
       // written by the tests themselves
       "tests/**/snapshots/**",
+      // written by `pnpm perf:host-admission trace`, one line of an anonymized history (scripts/perf/host-admission.mjs)
+      "tests/perf/host-admission/trace.json",
       // written by Icon Composer, which rewrites it in its own style on every save
       "**/*.icon/**",
       "crates/*/testdata/**",
