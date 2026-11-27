@@ -148,19 +148,50 @@ pub struct PushRefsReport {
   pub messages: Vec<String>,
 }
 
-/// The lines of a push's stderr that say why: `remote: ` lines that are no progress of a stage, and git's `error:` and
-/// `fatal:` lines but its `failed to push some refs`, which the reports say; not `Enumerating objects`, `Total …` or
-/// the other lines of git's own progress
+/// The lines of a push's stderr that say why: `remote: ` lines that are no progress, and git's `error:` and `fatal:`
+/// lines but its `failed to push some refs`, which the reports say; not `Enumerating objects`, `Total …` or the other
+/// lines of git's own progress. A remote that forwards a push to another one (a mirror) prefixes the lines of that one
+/// again (`remote: remote: Resolving deltas: 100% (1239/1239), done.`): a line keeps one `remote: `, and the progress of
+/// any stage (`Processing advertised refs: 100% (74680/74680)`, `Finding sources: …`) is no reason. A line said again
+/// is kept once, where it was said first
 pub(crate) fn remote_messages(stderr: &str) -> Vec<String> {
+  let mut seen = HashSet::new();
   stderr
     .lines()
     .map(str::trim_end)
-    .filter(|line| match line.strip_prefix("remote:") {
-      Some(said) => !said.trim().is_empty() && TransferProgressAnalyzer::new().analyze(line).is_none(),
-      None => (line.starts_with("error: ") || line.starts_with("fatal: ")) && !line.starts_with("error: failed to push some refs"),
+    .filter_map(|line| match strip_remote_prefixes(line) {
+      Some(said) => (!said.is_empty() && !is_stage_progress(said) && TransferProgressAnalyzer::new().analyze(line).is_none()).then(|| format!("remote: {said}")),
+      None => ((line.starts_with("error: ") || line.starts_with("fatal: ")) && !line.starts_with("error: failed to push some refs")).then(|| line.to_string()),
     })
-    .map(str::to_string)
+    .filter(|line| seen.insert(line.clone()))
     .collect()
+}
+
+/// What a `remote:` line says without its `remote:` prefixes, one per remote it passed; `None` for a line of git itself
+fn strip_remote_prefixes(line: &str) -> Option<&str> {
+  let mut said = line.strip_prefix("remote:")?.trim_start();
+  while let Some(rest) = said.strip_prefix("remote:") {
+    said = rest.trim_start();
+  }
+  Some(said)
+}
+
+/// A progress line of a stage of any name: `<Title>: <n>% (<done>/<total>)`, maybe with a rate or `, done.` after it
+fn is_stage_progress(said: &str) -> bool {
+  let Some((title, rest)) = said.split_once(": ") else {
+    return false;
+  };
+  let Some((percent, rest)) = rest.trim_start().split_once("% (") else {
+    return false;
+  };
+  let Some((counts, _)) = rest.split_once(')') else {
+    return false;
+  };
+  let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+  !title.is_empty()
+    && title.bytes().all(|byte| byte.is_ascii_alphabetic() || byte == b' ')
+    && digits(percent)
+    && counts.split_once('/').is_some_and(|(done, total)| digits(done) && digits(total))
 }
 
 /// The report of one ref of a `push --porcelain`

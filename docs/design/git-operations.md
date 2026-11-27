@@ -6051,7 +6051,10 @@ either one leaves the next push of the other valid. A push replaces exactly the 
   large): an error with the report of each refused ref and what the remote said why. The report names only the kind
   (`n/a (unpacker error)`); the reason is in stderr (`remote: fatal: pack exceeds maximum allowed size`, `error: remote
   unpack failed: …`), which `push_refs` keeps also when it reads the progress (`GitCommand::progress` returns the
-  messages of stderr with an accepted exit code), without the progress lines (`PushRefsReport::messages`).
+  messages of stderr with an accepted exit code), without the progress lines (`PushRefsReport::messages`). A mirror
+  (Space forwarding to GitHub) refuses an atomic push with the same report for every ref and forwards the lines of the
+  remote behind it with one more `remote:`: the refs of one report are named together, a line keeps one `remote:`, the
+  progress of any stage (`Processing advertised refs: 100% (…)`) is left out, and a line said again is said once.
   A push the remote refused for another reason is the `push_refused` failure of its push effect (`LeasedPush::Refused`).
 
 #### Push size

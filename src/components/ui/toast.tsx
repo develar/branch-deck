@@ -10,7 +10,9 @@
 // operation it started runs ("Updating…", `src/lib/event-toast.ts`); the icon, the action beside the text and the close
 // button align with the first line of the title (`items-start`), not with the middle of a long description; the content
 // keeps its own height in a box that the root's height clips (`ToastContent`), so the observer of Base UI never sees the
-// root's height animate
+// root's height animate; a description longer than 4 lines is clamped with "Show More", which shows the rest in a box of
+// at most half the window that scrolls, so a long error (the words of a remote that refused a push) never grows the toast
+// above the window, where its title and close button would be out of reach (`ClampedToastDescription`)
 "use client"
 
 import * as React from "react"
@@ -144,6 +146,40 @@ function ToastIcon({ type }: { type: string | undefined }) {
   )
 }
 
+/** At most this many lines of a description show until "Show More" */
+const DESCRIPTION_LINES = "line-clamp-4"
+
+/**
+ * The description of a toast in at most 4 lines; a longer one offers "Show More", which shows the rest in a box of at
+ * most half the window that scrolls, and "Show Less". The toast keeps its title and close button in the window whatever
+ * the length of the text. Measured once as it lays out (the width of a toast is that of the viewport, `max-w-sm`, not
+ * of its text; no `ResizeObserver`, whose one maker, `observeSize`, imports the app this file must not); a toast updated
+ * in place with other words mounts it anew (its `key`)
+ */
+function ClampedToastDescription({ children }: { children: React.ReactNode }) {
+  const ref = React.useRef<HTMLParagraphElement>(null)
+  const [expanded, setExpanded] = React.useState(false)
+  const [clamped, setClamped] = React.useState(false)
+  React.useLayoutEffect(() => {
+    const element = ref.current
+    if (element !== null && !expanded) {
+      setClamped(element.scrollHeight > element.clientHeight)
+    }
+  }, [expanded])
+  return (
+    <>
+      <ToastDescription ref={ref} className={expanded ? "max-h-[50vh] overflow-y-auto" : DESCRIPTION_LINES}>
+        {children}
+      </ToastDescription>
+      {(clamped || expanded) && (
+        <Button variant="link" size="xs" className="h-auto self-start p-0" onClick={() => setExpanded(!expanded)}>
+          {expanded ? "Show Less" : "Show More"}
+        </Button>
+      )}
+    </>
+  )
+}
+
 /** Custom toast data */
 interface ToastData {
   /** A second action after the primary one (`actionProps`): both go below the text, e.g. Fetch, then "Open in Patronus" */
@@ -184,7 +220,9 @@ function ToastList({ renderText }: { renderText?: ToastTextRenderer }) {
           <ToastIcon type={toastItem.type} />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <ToastTitle>{renderToastText(toastItem.title, "title", renderText)}</ToastTitle>
-            <ToastDescription>{renderToastText(toastItem.description, "description", renderText)}</ToastDescription>
+            <ClampedToastDescription key={typeof toastItem.description === "string" ? toastItem.description : undefined}>
+              {renderToastText(toastItem.description, "description", renderText)}
+            </ClampedToastDescription>
             {stacked && (
               // the primary action first
               <div className="flex gap-2 pt-1">

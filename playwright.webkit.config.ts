@@ -3,7 +3,8 @@ import base from "./playwright.config"
 
 // The drag and drop tests in WebKit, the engine of the app on macOS (WKWebView), beside Chromium of `pnpm e2e`, and the
 // tests tagged `@webkit` for focus, popups, the item under a resting pointer (a card over a moving anchor too),
-// branch-column widths, review navigation and a path cut from its start (`StartTruncatedText`), where WebKit differs,
+// branch-column widths, review navigation, a path cut from its start (`StartTruncatedText`) and the lines of a long toast
+// (`ClampedToastDescription`), where WebKit differs,
 // and what a sync renders (`row-renders.spec.ts`), which `perf:table` counts in both engines;
 // the title bar and Settings too, as on Linux (WebKitGTK) where a test claims it. A test of Windows alone (the Alt tap of
 // the main menu) runs only in Chromium, which is the webview of Windows (WebView2).
@@ -23,6 +24,7 @@ export default defineConfig({
     "landing/statistics.spec.ts",
     "landing/landing-plan.spec.ts",
     "landing/landing-overview.spec.ts",
+    "landing/push-to-master.spec.ts",
     "patronus/patronus-actions.spec.ts",
     "pull-requests/shown-reviews.spec.ts",
     "next-step/facts-without-answer.spec.ts",

@@ -244,12 +244,17 @@ fn send_leased(
     .collect();
   if moved.is_empty() {
     // the leases held: the remote refused the push for another reason, e.g. a hook, a protected branch or a pack too
-    // large for it; the report of a ref only names the kind, what the remote said names the reason
-    let mut summary = refused
-      .iter()
-      .map(|branch| format!("{} {}", branch.push.full_name, report_of(branch).map_or("no report", |report| report.summary.as_str())))
-      .collect::<Vec<_>>()
-      .join("; ");
+    // large for it; the report of a ref only names the kind, what the remote said names the reason. The refs of one
+    // report are named together: an atomic push refused by a mirror reports every ref with the same words
+    let mut by_report: Vec<(&str, Vec<&str>)> = Vec::new();
+    for branch in &refused {
+      let said = report_of(branch).map_or("no report", |report| report.summary.as_str());
+      match by_report.iter_mut().find(|(report, _)| *report == said) {
+        Some((_, names)) => names.push(&branch.push.full_name),
+        None => by_report.push((said, vec![&branch.push.full_name])),
+      }
+    }
+    let mut summary = by_report.iter().map(|(said, names)| format!("{} {said}", names.join(", "))).collect::<Vec<_>>().join("; ");
     if !report.messages.is_empty() {
       warn!(messages = ?report.messages, "the remote refused the push");
       summary = format!("{summary}. {}", report.messages.join(" · "));

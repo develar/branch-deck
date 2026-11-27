@@ -7,7 +7,7 @@ use domain_types::RemoteStatusUpdate;
 use pretty_assertions::assert_eq;
 use std::fmt::Write;
 use test_log::test;
-use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, refuse_every_push};
+use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, pre_receive_hook, refuse_every_push};
 
 /// The prefix the pushed branches are named under
 const PREFIX: &str = "prefix";
@@ -481,6 +481,11 @@ const LOGIN: &str = "prefix/virtual/login";
 /// The app's push of a stack: `auth`, then `login` built on it, each leased on its `expected` remote head and pushed
 /// up to its `tip` (Push Up to Here) when one is given
 fn push_stack(local: &TestRepo, expected: [Option<&str>; 2], tips: [Option<&str>; 2]) -> PushBranchesOutcome {
+  push_branches(local.git_executor(), PREFIX, &stack_params(local, expected, tips), &mut |_| {}).unwrap()
+}
+
+/// The params of the app's push of the stack of `push_stack`
+fn stack_params(local: &TestRepo, expected: [Option<&str>; 2], tips: [Option<&str>; 2]) -> PushBranchesParams {
   let branch = |name: &str, parent: Option<&str>, expected: Option<&str>, tip: Option<&str>| StackPushBranch {
     branch_name: name.to_string(),
     parent_branch: parent.map(str::to_string),
@@ -489,13 +494,12 @@ fn push_stack(local: &TestRepo, expected: [Option<&str>; 2], tips: [Option<&str>
     whole_stack: false,
     unapplied: false,
   };
-  let params = PushBranchesParams {
+  PushBranchesParams {
     repository_path: path(local).to_string(),
     my_email: Some("test@example.com".to_string()),
     baseline_branch: "origin/master".to_string(),
     branches: vec![branch("auth", None, expected[0], tips[0]), branch("login", Some("auth"), expected[1], tips[1])],
-  };
-  push_branches(local.git_executor(), PREFIX, &params, &mut |_| {}).unwrap()
+  }
 }
 
 /// The remote statuses of a push of `params` that no sync refuses and whose remote branches are where it expects them
@@ -621,6 +625,30 @@ fn a_stack_pushes_its_branches_in_one_push() {
     statuses.iter().all(|status| status.unpushed_commits.is_empty() && status.commits_behind == 0),
     "{statuses:?}"
   );
+}
+
+/// A mirror that refuses an atomic push reports every ref with the same words and forwards the lines of the remote
+/// behind it, its progress and its reason, each with one more `remote: `, maybe twice: the refused refs are named
+/// together with the words of their report, and the reason is said once, without the progress
+#[test]
+fn a_stack_the_remote_refuses_names_its_branches_together_and_says_the_reason_once() {
+  let (remote, local) = local_with_bare_remote();
+  stack(&local);
+  pre_receive_hook(
+    remote.path(),
+    "echo 'remote: Processing advertised refs: 100% (74680/74680)' >&2\n\
+     echo 'remote: Resolving deltas: 100% (1239/1239), done.' >&2\n\
+     echo 'remote: error: unable to write file' >&2\n\
+     echo 'remote: error: unable to write file' >&2\n\
+     exit 1",
+  );
+
+  let error = push_branches(local.git_executor(), PREFIX, &stack_params(&local, [None, None], [None, None]), &mut |_| {}).unwrap_err();
+  assert_eq!(
+    error.to_string(),
+    format!("The remote rejected the push: {AUTH}, {LOGIN} [remote rejected] (pre-receive hook declined). remote: error: unable to write file")
+  );
+  assert_eq!((remote_tip_of(&remote, AUTH), remote_tip_of(&remote, LOGIN)), (None, None), "nothing was pushed");
 }
 
 /// A stack is pushed whole or not at all: someone else's commit on the remote branch of `login` refuses the push of

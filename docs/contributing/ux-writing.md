@@ -26,7 +26,8 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
 - **Never "Success" or "Error" as a title**: the icon already says it.
 - **The description is the detail**: what the push did ("1 commit · created the remote branch", "1 commit · dropped 2
   remote commits"), what a robot tests ("air-session-runtime → master · profile Large Scale Change"), the amended commit.
-  It never repeats the title.
+  It never repeats the title. A description longer than 4 lines shows 4 with "Show More" (`ClampedToastDescription` of
+  `src/components/ui/toast.tsx`), so the words of a remote never push the title and the close button out of the window.
 - **No "branch: Title Case" prefixes** ("feature-auth: Changes Amended"): the branch is part of the sentence ("Unapplied
   feature-auth").
 - **Name the object the user knows**: the virtual branch, never its ref (`develar/virtual/air-session-runtime`).

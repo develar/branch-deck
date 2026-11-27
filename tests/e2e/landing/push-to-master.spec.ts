@@ -54,6 +54,11 @@ function pushToast(page: Page, title: string): Locator {
   return page.locator("[data-slot=toast]:not([data-ending-style])", { hasText: title })
 }
 
+/** The height of `locator` as the page lays it out now */
+async function heightOf(locator: Locator): Promise<number> {
+  return await locator.evaluate(element => element.getBoundingClientRect().height)
+}
+
 /**
  * The popover asks what CI did not pass on the commit it lands (no pull request ran it), Enter pushes the copy into
  * master: the remote's master is the copy, the toast says what landed, the update that follows drops the originals
@@ -347,6 +352,38 @@ test.describe("Push to master", () => {
     await expect(safePushPopover(page).getByTestId("safe-push-route")).toContainText("The server refused a push into master before: ")
     await expect(safePushPopover(page).getByTestId("safe-push-route")).toContainText("remote: master is protected")
   })
+
+  test(
+    "should keep the title and the close button of a long refusal in the window, and show the rest with Show More",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      expectErrorLog(page, /^Cannot push JIRA-456 into master: The server refused the push into master/)
+      const repo = await setup(page, setupRepo, syncAndWaitForBranches)
+      // a mirror that failed: a line of the remote behind it per file it could not write, longer than the window
+      const lines = Array.from({ length: 40 }, (_, index) => `error: unable to write file /data/repositories/8/nw/83/0c/objects/pack/pack-${index}.pack`)
+      await repo.refuseRemotePushes(lines.join("\n"))
+      await pushStep(page, BRANCH).click()
+      await expect(popoverStart(page)).toBeFocused()
+      await pushAndWait(page)
+      const refusal = pushToast(page, `Cannot push ${BRANCH} into master`)
+      const description = refusal.locator("[data-slot=toast-description]")
+      await expect(description).toContainText("pack-39.pack")
+      await expect(refusal.locator("[data-slot=toast-title]")).toBeInViewport({ ratio: 1 })
+      await expect(refusal.locator("[data-slot=toast-close]")).toBeInViewport({ ratio: 1 })
+      const clamped = await heightOf(description)
+
+      await refusal.getByRole("button", { name: "Show More" }).click()
+      await expect.poll(() => heightOf(description)).toBeGreaterThan(clamped)
+      // the rest scrolls in the toast: its title stays in the window
+      await expect(refusal.locator("[data-slot=toast-title]")).toBeInViewport({ ratio: 1 })
+      await description.evaluate(element => element.scrollTo({ top: element.scrollHeight }))
+      await expect(refusal.locator("[data-slot=toast-close]")).toBeInViewport({ ratio: 1 })
+
+      await refusal.getByRole("button", { name: "Show Less" }).click()
+      await expect.poll(() => heightOf(description)).toBe(clamped)
+      await closeToast(refusal)
+    },
+  )
 
   test("should disable Push to master with the reason when the token has no write access to the repository", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setup(page, setupRepo, syncAndWaitForBranches, {
