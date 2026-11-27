@@ -102,7 +102,7 @@ pub enum ActionId {
   CancelRobot,
   CopyRobotPrompt,
   CopyRobotFullPrompt,
-  /// Opens the dialog that starts an agent session in Air with the prompt (openspec/specs/branch/start-in-air/spec.md)
+  /// Opens the New Session tab of Air with the prompt (openspec/specs/branch/start-in-air/spec.md)
   StartRobotInAir,
   OpenRobot,
   OpenRobotPullRequest,
@@ -196,8 +196,8 @@ impl ActionId {
   /// window: the inline forms of a row (rename, park, amend, the issue reference, the squash of the fixups, unapply, the
   /// typed delete of a kept branch, the confirmation of an ungroup and of the close of the pull request of a whole stack),
   /// the target picker of a move or a stack, the popover of a Safe Push and of its rarer starts (a review after landing
-  /// among them), of Request Review (of a review after landing too), of Start in Air and the confirmation of the close of
-  /// a review after landing, the question of a push that would drop remote commits. A review window asks the main window to run
+  /// among them), of Request Review (of a review after landing too) and the confirmation of the close of a review after
+  /// landing, the question of a push that would drop remote commits. A review window asks the main window to run
   /// it there (`review/run`, openspec/specs/review/review-window/spec.md#actions); every other action runs where it is chosen.
   #[must_use]
   pub const fn opens_row_form(self) -> bool {
@@ -233,7 +233,6 @@ impl ActionId {
         | Self::DryRunWholeStack
         | Self::SafePushMainLine
         | Self::CloseStackPullRequest
-        | Self::StartRobotInAir
     )
   }
 

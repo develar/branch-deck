@@ -3,15 +3,13 @@ name = "air-launch"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The local app client of the local AHP socket of Air (the local peer handshake v2, then JSON-RPC of ahp-root://): the instance files of the IDEs, the IDE of a directory, the targets, the launch of a session and the watch of its row"
+description = "The local app client of the local AHP socket of Air (the local peer handshake v2, then JSON-RPC of ahp-root://): the instance files of the IDEs, the IDE of a directory, and the New Session tab of a prompt"
 publish = false
 
 [dependencies]
 # the instance files, the requests and the responses (`discovery`, `protocol`)
 serde.workspace = true
 serde_json.workspace = true
-# the types the page gets through the commands of app-api
-specta = { workspace = true, optional = true }
 # the errors of the exchange (`client`)
 thiserror.workspace = true
 tracing.workspace = true
@@ -26,10 +24,6 @@ uds_windows = "1.2.1"
 [dev-dependencies]
 pretty_assertions.workspace = true
 tempfile.workspace = true
-
-[features]
-default = []
-specta = ["dep:specta"]
 
 [lints]
 workspace = true

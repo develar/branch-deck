@@ -1,6 +1,5 @@
 import { z } from "zod"
 import { useStore } from "zustand"
-import type { AirLaunchChoice } from "@/lib/air-launch"
 import type { IssueNavigationConfig } from "@/lib/bindings"
 import type { ReviewFilter } from "@/lib/review-owners"
 import { stableStringify } from "@/lib/stable-stringify"
@@ -11,18 +10,6 @@ import type { ArrayStoreState } from "./persistent-store"
 const IssueNavigationConfigSchema = z.object({
   links: z.array(z.object({ issueRegexp: z.string(), linkRegexp: z.string() })),
 }) satisfies z.ZodType<IssueNavigationConfig>
-
-/** What Start in Air remembers (`AirLaunchChoice`) */
-const AirLaunchChoiceSchema = z.object({
-  launchTargetId: z.string(),
-  interactionSurfaceId: z.string(),
-  model: z.string().nullable(),
-  effort: z.string().nullable(),
-  mode: z.string().nullable().optional(),
-  plan: z.boolean().optional(),
-  planEffort: z.string().nullable().optional(),
-  start: z.enum(["run", "draft"]),
-}) satisfies z.ZodType<AirLaunchChoice>
 
 /** An owner chip of the review windows (`ReviewFilter`) but All, which is no chip to remember */
 const ReviewOwnerChipSchema = z.discriminatedUnion("kind", [
@@ -41,8 +28,6 @@ export const ProjectMetadataSchema = z.object({
   collapsedStacks: z.array(z.string()).optional(),
   /** A malformed value is dropped, never the recent projects */
   issueNavigationConfig: IssueNavigationConfigSchema.optional().catch(undefined),
-  /** The last agent, model, effort, mode, Plan, plan effort and start that Start in Air launched in the repository; a malformed value is dropped */
-  airLaunch: AirLaunchChoiceSchema.optional().catch(undefined),
   /**
    * The owner chip last chosen in a review window of the repository: the next one opens on it where it marks files
    * (openspec/specs/branch/branch-review/spec.md, "Code owners"); a malformed value is dropped

@@ -1077,7 +1077,7 @@ describe("failed robots", () => {
     patronus.problems = []
     const stop = watchFailures()
     await failRunningRobot()
-    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Start in Air…", "Copy Prompt for Agent"]])
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Start in Air", "Copy Prompt for Agent"]])
     // a later answer with the same robot tells nothing
     patronusStore.setState(state => ({ repositories: { ...state.repositories } }))
     await poll()
@@ -1131,7 +1131,7 @@ describe("failed robots", () => {
     patronus.failureKind = "massive"
     const stop = watchFailures()
     await failRunningRobot()
-    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · many tests failed, check master · auth → master", "Start in Air…", "Copy Prompt for Agent"]])
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · many tests failed, check master · auth → master", "Start in Air", "Copy Prompt for Agent"]])
     stop()
   })
 
@@ -1157,7 +1157,7 @@ describe("failed robots", () => {
     const stop = watchFailures()
     await failRunningRobot()
     await vi.advanceTimersByTimeAsync(0)
-    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Start in Air…", "Copy Prompt for Agent"]])
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Start in Air", "Copy Prompt for Agent"]])
     stop()
   })
 
@@ -1183,7 +1183,7 @@ describe("failed robots", () => {
     const stop = watchFailures()
     await failRunningRobot()
     // the session's news says why is unknown: a plain failure, with Start in Air first and Copy Prompt for Agent second
-    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Start in Air…", "Copy Prompt for Agent"]])
+    expect(toasts()).toEqual([["Safe Push of auth failed", "Fast Tests · auth → master", "Start in Air", "Copy Prompt for Agent"]])
     stop()
   })
 })

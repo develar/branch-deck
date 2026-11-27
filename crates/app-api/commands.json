@@ -460,25 +460,7 @@
     "transport": "json"
   },
   {
-    "name": "air_launch_targets",
-    "class": "read",
-    "transport": "json"
-  },
-  {
-    "name": "air_launch",
-    "class": "app",
-    "transport": "json"
-  },
-  {
-    "name": "air_watch_session",
-    "class": "read",
-    "transport": {
-      "channel": "statuses",
-      "open": false
-    }
-  },
-  {
-    "name": "stop_air_watch",
+    "name": "air_open_draft",
     "class": "app",
     "transport": "json"
   },

@@ -394,7 +394,6 @@
     "safe-push-whole-stack",
     "dry-run-whole-stack",
     "safe-push-main-line",
-    "close-stack-pull-request",
-    "start-robot-in-air"
+    "close-stack-pull-request"
   ]
 }

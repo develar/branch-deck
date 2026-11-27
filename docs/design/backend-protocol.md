@@ -188,7 +188,7 @@ sequenceDiagram
   operation) have no order against the actions of the channel.
 - **A cancel**: `x-branch-deck/cancel {requestId}`, a root notification, ends the call of that id of the same
   connection where the command can stop (its `Sink` gone, as a page that went away); the explicit cancels of the
-  registry (`cancel_operation`, `cancel_symbol_search`, `cancel_conflict_fix`, `cancel_sign_in`, `stop_air_watch`,
+  registry (`cancel_operation`, `cancel_symbol_search`, `cancel_conflict_fix`, `cancel_sign_in`,
   `cancel_cli_tool_action`) stay commands. A call gets exactly one answer.
 - **Undo** is `execute` of its intent, which needs no subscription.
 
@@ -200,7 +200,7 @@ The class of each command (the kind of `registry.rs`) says where it runs:
 | Native (`main`) | `show_window_menu`, `set_auto_sync_menu_checked`, `restart_app` | Yes, by the capability (`nativeMenu`, `restart`): without it the menu commands do nothing and `restart_app` answers its `ApiError` |
 | Desktop | `open_sub_window`, `sub_window_loaded`, `sub_window_drawn`, `sub_window_ready` (the windows); `browse_repository`, `add_companion` (`folderDialog`); `check_for_updates`, `get_update_status`, `install_update` (`updater`); `install_agent_cli`, `install_ide_app`, `remove_ide_app`, `agent_cli_command`, `agent_cli_status` (`agentCli`) | Yes: the Desktop of the connection; a capability the client lacks answers as a Desktop without it |
 | Raw | `get_blob_syntax` | Yes: `{bytes}` |
-| Stream | `disk_usage`, `get_file_diffs`, `get_index_marks`, `get_file_merges`, `get_review_plan`, `get_range_readings`, `execute`, `get_robot_stats`, `sign_in`, `air_watch_session` | Yes: `callEvent`s, then the answer |
+| Stream | `disk_usage`, `get_file_diffs`, `get_index_marks`, `get_file_merges`, `get_review_plan`, `get_range_readings`, `execute`, `get_robot_stats`, `sign_in` | Yes: `callEvent`s, then the answer |
 | Any other | the reads, the session commands, the writes of the app | Yes |
 
 ### The windows of a connection

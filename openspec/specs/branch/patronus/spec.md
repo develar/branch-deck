@@ -4051,8 +4051,8 @@ possible) when its builds never started
 
 #### Scenario: A running Safe Push failed
 - **WHEN** a running Safe Push failed
-- **THEN** the `error` toast tells it once with the failed checks, and its first action, "Start in Air", starts a session in the IDE, with "Copy Prompt for Agent" as the second option
-  [@test] tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and start a session in the IDE from the toast, with Copy Prompt for Agent as the second option`)
+- **THEN** the `error` toast tells it once with the failed checks, and its first action, "Start in Air", opens the New Session tab in the IDE, with "Copy Prompt for Agent" as the second option
+  [@test] tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and offer Start in Air in the toast, with Copy Prompt for Agent as the second option`)
   [@test] src/stores/patronus.test.ts (`tells once that a robot failed, with Start in Air and Copy Prompt for Agent beside it, and the failed checks, once its problems are read`)
 
 #### Scenario: Its builds never started
@@ -4089,7 +4089,7 @@ A failure MUST be recorded in Activity, and in the background the OS notificatio
 #### Scenario: The failure is recorded
 - **WHEN** a running Safe Push failed
 - **THEN** Activity records it
-  [@test] tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and start a session in the IDE from the toast, with Copy Prompt for Agent as the second option`)
+  [@test] tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and offer Start in Air in the toast, with Copy Prompt for Agent as the second option`)
 
 #### Scenario: A failure in the background
 - **WHEN** a robot failed while no window has the focus
@@ -5219,7 +5219,7 @@ Dry Run"); a bare "Cancel" in a popover reads like closing it.
 
 #### Scenario: The prompts of a failed robot
 - **WHEN** the actions of a failed robot, or of a failing one, show
-- **THEN** "Start in Air…", "Copy Prompt for Agent" and "Copy Prompt with CI Details" come after the restart and the cancel, before "Open in Patronus"
+- **THEN** "Start in Air", "Copy Prompt for Agent" and "Copy Prompt with CI Details" come after the restart and the cancel, before "Open in Patronus"
 
 ### Requirement: Restart and cancel: A branch that can't change keeps Cancel and Open in Patronus
 

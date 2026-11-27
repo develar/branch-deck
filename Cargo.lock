@@ -30,7 +30,6 @@ dependencies = [
  "pretty_assertions",
  "serde",
  "serde_json",
- "specta",
  "sync-utils",
  "tempfile",
  "thiserror 2.0.21",
@@ -956,7 +955,6 @@ dependencies = [
 name = "branch-deck"
 version = "0.1.0"
 dependencies = [
- "air-launch",
  "anyhow",
  "app-api",
  "app-settings",
@@ -8019,7 +8017,6 @@ dependencies = [
 name = "test-server"
 version = "0.1.0"
 dependencies = [
- "air-launch",
  "anyhow",
  "app-api",
  "app-settings",

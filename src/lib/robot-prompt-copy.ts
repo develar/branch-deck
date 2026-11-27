@@ -1,14 +1,15 @@
 import { toast } from "@/components/ui/toast"
+import { formatIde, formatRefusal, openDraftInAir } from "@/lib/air-launch"
 import { commands } from "@/lib/bindings"
-import type { AgentCliCommand, PatronusRobot, RobotFailureReport } from "@/lib/bindings"
+import type { AgentCliCommand, AirDraftAnswer, PatronusRobot, RobotFailureReport } from "@/lib/bindings"
 import { hostOf } from "@/lib/cli-tools"
 import { copyTextLater } from "@/lib/clipboard"
 import { commandFailure, notifyError } from "@/lib/errors"
 import { formatRobotSubject } from "@/lib/patronus"
+import { repositoryName } from "@/lib/repository-config"
 import { buildRobotPrompt } from "@/lib/robot-prompt"
 import { openSettings } from "@/lib/settings-window"
-import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
-import { openAirLaunchDialog } from "@/stores/air-launch-dialog"
+import { ACTION_TOAST_TIMEOUT_MS, showToast, TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import { branchSyncStore, structureIn } from "@/stores/branch-sync"
 import { patronusRequest } from "@/stores/patronus"
 import { getEffectiveBranchPrefix } from "@/stores/repository"
@@ -82,9 +83,57 @@ export async function copyRobotPrompt(robot: PatronusRobot): Promise<boolean> {
   }
 }
 
-/** "Start in Air…": the dialog that starts the fast prompt in the IDE with Air that has the repository open */
-export function startRobotInAir(robot: PatronusRobot): void {
-  openAirLaunchDialog(patronusRequest().repositoryPath, robot)
+/** "Copy Prompt" of a toast of Start in Air: the toast closes, and a toast says the copy, as the clipboard shows nothing */
+function copyInstead(id: string, robot: PatronusRobot): void {
+  toast.close(id)
+  void copyRobotPrompt(robot).then(copied => {
+    if (copied) {
+      showToast({ title: `Copied the prompt for ${branchLabel(robot)}`, description: "Paste it into your coding agent" })
+    }
+  })
+}
+
+/**
+ * "Start in Air": opens the New Session tab with the fast prompt in the IDE with Air that has the repository open, with
+ * the default agent of its New Session button (openspec/specs/branch/start-in-air/spec.md). The IDE may ask the user
+ * first, so a toast says it opens, and turns in place into what the IDE answered: opened, no IDE with Copy Prompt, or
+ * the refusal in its words
+ */
+export async function startRobotInAir(robot: PatronusRobot): Promise<void> {
+  const { repositoryPath } = patronusRequest()
+  const branch = branchLabel(robot)
+  // the consent dialog of the IDE can take up to 120 s
+  const id = toast.add({ type: "loading", title: "Opening in Air…", description: `New Session for ${branch}`, timeout: 0 })
+  let answer: AirDraftAnswer
+  try {
+    const { prompt } = await readRobotPrompt(robot, false)
+    answer = await openDraftInAir(repositoryPath, prompt)
+  } catch (error) {
+    toast.close(id)
+    notifyError(`Cannot open the New Session for ${branch} in Air`, error)
+    return
+  }
+  switch (answer.status) {
+    case "opened":
+      toast.update(id, { type: "success", title: `Opened in ${formatIde(answer.ide)}`, description: `New Session for ${branch}`, timeout: TOAST_TIMEOUT_MS })
+      return
+    case "noIde":
+      toast.update(id, {
+        type: "info",
+        title: `No IDE with Air has ${repositoryName(repositoryPath)} open`,
+        description: "Open the repository in an IDE with Air and try again, or copy the prompt",
+        timeout: ACTION_TOAST_TIMEOUT_MS,
+        actionProps: { children: "Copy Prompt", onClick: () => copyInstead(id, robot) },
+      })
+      return
+    case "refused":
+      toast.update(id, {
+        type: "error",
+        title: `Cannot open the New Session for ${branch} in Air`,
+        description: formatRefusal(answer.code, answer.message),
+        timeout: ACTION_TOAST_TIMEOUT_MS,
+      })
+  }
 }
 
 /** "3 failed tests · log of 2 builds", of what the full prompt holds */

@@ -45,8 +45,6 @@ app-api = { path = "../crates/app-api" }
 # the one backend of the user: the host of app-api on the local socket of the app, for the bridges of the IDEs
 # (`backend.rs`), and the in-process connection the pages of the app reach app-api through (`api.rs`)
 backend-host = { path = "../crates/backend-host" }
-# the types of the commands of Start in Air, which the registry names by their path
-air-launch = { path = "../crates/air-launch" }
 sync-utils = { path = "../crates/sync-utils" }
 cli-tools = { path = "../crates/cli-tools" }
 branch-integration = { path = "../crates/branch-integration", features = ["specta"] }

@@ -154,7 +154,7 @@ test.describe("Landing overview", () => {
       .poll(() => row.locator("button[aria-label]").evaluateAll(buttons => buttons.map(it => it.getAttribute("aria-label"))))
       .toEqual([
         "Restart Safe Push of ABC-123",
-        "Start in Air… of ABC-123",
+        "Start in Air of ABC-123",
         "Copy Prompt for Agent of ABC-123",
         "Copy Prompt with CI Details of ABC-123",
         "Open Safe Push of ABC-123 in Patronus",

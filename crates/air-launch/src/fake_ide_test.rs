@@ -1,16 +1,16 @@
-//! The fake local AHP socket of an IDE for the tests of the client, of the watch and of the discovery: it takes the
-//! connections one after another, runs the handshake, and plays the steps of each connection: a frame it reads and
-//! checks, a frame it writes, a pause, the close. `FakeIde::replay` plays a fixture of `fixtures/`, in the form of the
-//! corpus of the IDE (`localConnect`, `local`, `toLocal`)
+//! The fake local AHP socket of an IDE for the tests of the client and of the discovery: it takes the connections one
+//! after another, runs the handshake, and plays the steps of each connection: a frame it reads and checks, a frame it
+//! writes, a pause, the close. `FakeIde::replay` plays a fixture of `fixtures/`, in the form of the corpus of the IDE
+//! (`localConnect`, `local`, `toLocal`), and `FakeIde::replay_only` the part of it that this client sends
 
 use crate::client::Client;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread::JoinHandle;
-use std::time::Duration;
 use tempfile::TempDir;
 
 #[cfg(unix)]
@@ -36,7 +36,6 @@ pub(crate) enum Step {
   WriteLine(String),
   /// Bytes of the IDE without a line end
   Raw(Vec<u8>),
-  Pause(Duration),
   /// The close of the connection by the IDE
   Close,
 }
@@ -144,28 +143,14 @@ impl FakeIde {
   /// The connections of the fixture `name` of `fixtures/`: a `localConnect` opens one, a `local` is its frame of the
   /// client, a `toLocal` its frame of the IDE, or the close
   pub(crate) fn replay(name: &str) -> Self {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join(name);
-    let text = std::fs::read_to_string(&path).unwrap();
-    let mut clients: Vec<String> = Vec::new();
-    let mut connections: Vec<Vec<Step>> = Vec::new();
-    for line in text.lines().filter(|line| !line.trim().is_empty()) {
-      let value: Value = serde_json::from_str(line).unwrap();
-      let (kind, body) = value.as_object().unwrap().iter().next().unwrap();
-      let client = body["client"].as_str().map(str::to_owned);
-      let index = |client: Option<String>| clients.iter().position(|it| Some(it) == client.as_ref()).unwrap();
-      match kind.as_str() {
-        "comment" => {}
-        "localConnect" => {
-          clients.push(client.unwrap());
-          connections.push(vec![Step::Read(body["request"].clone())]);
-        }
-        "local" => connections[index(client)].push(Step::Read(body["frame"].clone())),
-        "toLocal" if body["frame"].is_null() => connections[index(client)].push(Step::Close),
-        "toLocal" => connections[index(client)].push(Step::Write(body["frame"].clone())),
-        other => panic!("{}: a step {other} of no local app", path.display()),
-      }
-    }
-    Self::serve(connections)
+    Self::serve(read_fixture(name, None))
+  }
+
+  /// The connections of the fixture `name` as a client that sends only `initialize` and the requests of `sends`, each
+  /// method with only the params it names: another request of the client, its answer and every notice of the IDE drop
+  /// out, and the ids of the kept requests count on from 2 in the order of the fixture
+  pub(crate) fn replay_only(name: &str, sends: &[(&str, &[&str])]) -> Self {
+    Self::serve(read_fixture(name, Some(sends)))
   }
 
   fn start(connections: Vec<(Handshake, Vec<Step>)>) -> Self {
@@ -191,6 +176,63 @@ impl FakeIde {
     self.server.join().unwrap();
     self.read.try_iter().collect()
   }
+}
+
+/// The steps of each connection of the fixture `name`; with `sends`, of a client that sends only those requests
+/// (`FakeIde::replay_only`)
+fn read_fixture(name: &str, sends: Option<&[(&str, &[&str])]>) -> Vec<Vec<Step>> {
+  let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join(name);
+  let text = std::fs::read_to_string(&path).unwrap();
+  let mut clients: Vec<String> = Vec::new();
+  let mut connections: Vec<Vec<Step>> = Vec::new();
+  // the id of each kept request of the fixture, by the id the client sends for it
+  let mut ids: Vec<HashMap<Value, u64>> = Vec::new();
+  for line in text.lines().filter(|line| !line.trim().is_empty()) {
+    let value: Value = serde_json::from_str(line).unwrap();
+    let (kind, body) = value.as_object().unwrap().iter().next().unwrap();
+    let client = body["client"].as_str().map(str::to_owned);
+    let index = |client: Option<String>| clients.iter().position(|it| Some(it) == client.as_ref()).unwrap();
+    match kind.as_str() {
+      "comment" => {}
+      "localConnect" => {
+        clients.push(client.unwrap());
+        connections.push(vec![Step::Read(body["request"].clone())]);
+        ids.push(HashMap::new());
+      }
+      "local" => {
+        let index = index(client);
+        let mut frame = body["frame"].clone();
+        if let Some(sends) = sends {
+          let Some((_, params)) = sends.iter().find(|(method, _)| frame["method"] == *method) else {
+            continue;
+          };
+          let id = u64::try_from(ids[index].len()).unwrap() + 2;
+          ids[index].insert(frame["id"].clone(), id);
+          frame["id"] = json!(id);
+          frame["params"].as_object_mut().unwrap().retain(|key, _| key == "channel" || params.contains(&key.as_str()));
+        }
+        connections[index].push(Step::Read(frame));
+      }
+      "toLocal" => {
+        let index = index(client);
+        let mut frame = body["frame"].clone();
+        if frame.is_null() {
+          connections[index].push(Step::Close);
+          continue;
+        }
+        // the answer of `initialize` stays; a notice and the answer of a request the client does not send drop out
+        if sends.is_some() && frame.get("id") != Some(&json!(1)) {
+          let Some(id) = frame.get("id").and_then(|id| ids[index].get(id)) else {
+            continue;
+          };
+          frame["id"] = json!(id);
+        }
+        connections[index].push(Step::Write(frame));
+      }
+      other => panic!("{}: a step {other} of no local app", path.display()),
+    }
+  }
+  connections
 }
 
 /// Plays one connection
@@ -265,7 +307,6 @@ fn play(stream: UnixStream, handshake: Handshake, steps: Vec<Step>, sender: &mps
       Step::Raw(bytes) => {
         let _ = reader.get_mut().write_all(&bytes);
       }
-      Step::Pause(pause) => std::thread::sleep(pause),
       Step::Close => return,
     }
   }

@@ -52,8 +52,6 @@ app-api = { path = "../app-api" }
 ide-host = { path = "../ide-host" }
 # the socket of a backend the corpus of the bridge reaches as it reaches the desktop app (`mcp_corpus_test.rs`)
 backend-host = { path = "../backend-host" }
-# the types of the commands of Start in Air, which the registry names by their path
-air-launch = { path = "../air-launch" }
 # the writer of the settings of a test repository (`TestRepository::store`), as the app's
 app-settings = { path = "../app-settings" }
 cli-tools = { path = "../cli-tools" }

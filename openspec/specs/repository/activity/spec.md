@@ -315,7 +315,7 @@ A Patronus robot failing, failed or merged MUST be the news of the session, whic
   / "Safe Push")
 - **THEN** the page records it, with the page of the robot
   [@test] src/stores/activity.test.ts (`records the news of a robot with its page`)
-  [@test] tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and start a session in the IDE from the toast, with Copy Prompt for Agent as the second option`)
+  [@test] tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and offer Start in Air in the toast, with Copy Prompt for Agent as the second option`)
 
 ### Requirement: Recording: A new review request is an entry per request
 

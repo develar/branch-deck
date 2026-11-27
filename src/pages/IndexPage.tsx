@@ -32,7 +32,6 @@ import { openSubWindow } from "@/lib/window-management"
 import { MIN_ISLANDS_WIDTH } from "@/lib/zoom"
 import { tellReadFailures } from "@/model/auth-facts"
 import { setSessionWindowFocus } from "@/model/store"
-import { useAirLaunchDialogOpen } from "@/stores/air-launch-dialog"
 import { useCreatePullRequestBranch } from "@/stores/create-pull-request-dialog"
 import { useDiskUsageDialogOpen } from "@/stores/disk-usage-dialog"
 import { mainViewStore, showMainView, useMainView } from "@/stores/main-view"
@@ -60,7 +59,6 @@ const ReviewsView = lazy(() => import("@/components/reviews/ReviewsView").then(i
 
 // loaded on the first open, then kept mounted (a dialog animates and returns the focus when it closes)
 const CreatePullRequestDialog = lazy(() => import("@/components/branch/CreatePullRequestDialog").then(it => ({ default: it.CreatePullRequestDialog })))
-const StartInAirDialog = lazy(() => import("@/components/branch/StartInAirDialog").then(it => ({ default: it.StartInAirDialog })))
 const DiskUsageDialog = lazy(() => import("@/components/disk/DiskUsageDialog").then(it => ({ default: it.DiskUsageDialog })))
 const DeniedRequestsDialog = lazy(() => import("@/components/unattended/DeniedRequestsDialog").then(it => ({ default: it.DeniedRequestsDialog })))
 
@@ -204,12 +202,6 @@ export function IndexPage() {
   if (createPullRequestOpen && !isCreatePullRequestLoaded) {
     setCreatePullRequestLoaded(true)
   }
-  // "Start in Air…" of a robot
-  const airLaunchOpen = useAirLaunchDialogOpen()
-  const [isAirLaunchLoaded, setAirLaunchLoaded] = useState(false)
-  if (airLaunchOpen && !isAirLaunchLoaded) {
-    setAirLaunchLoaded(true)
-  }
   // "Show Disk Usage…" of the palette
   const diskUsageOpen = useDiskUsageDialogOpen()
   const [isDiskUsageLoaded, setDiskUsageLoaded] = useState(false)
@@ -284,7 +276,6 @@ export function IndexPage() {
       </div>
       <CommandPalette />
       <Suspense fallback={null}>{isCreatePullRequestLoaded && <CreatePullRequestDialog />}</Suspense>
-      <Suspense fallback={null}>{isAirLaunchLoaded && <StartInAirDialog />}</Suspense>
       <Suspense fallback={null}>{isDiskUsageLoaded && <DiskUsageDialog />}</Suspense>
       <Suspense fallback={null}>{isDeniedRequestsLoaded && <DeniedRequestsDialog />}</Suspense>
     </div>

@@ -1,8 +1,8 @@
 //! The messages of the local AHP socket of Air for a local app: the lines of the local peer handshake v2 (the opener,
 //! the greeting with its nonce, the envelope and a refusal of the handshake), the JSON-RPC 2.0 frames after it (a request
-//! of `ahp-root://`, its result or error, a notice of the root), the results a local app reads and the refusal of an
-//! error (`error.data.code`). A field the IDE adds later is ignored; a refusal code this client does not know stays as its
-//! text. The types the page gets are `Air…` in its bindings (`serde(rename)`), beside the types of the app.
+//! of `ahp-root://`, its result or error, a notice of the IDE), the result of the hosts, the params of a draft and the
+//! refusal of an error (`error.data.code`). A field the IDE adds later is ignored; a refusal code this client does not
+//! know stays as its text.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -171,8 +171,8 @@ impl fmt::Display for HandshakeRefusal {
 pub(crate) enum Frame {
   /// The answer of the request `id`: its result, or its error
   Response { id: Value, outcome: Result<Value, RpcError> },
-  /// A notice of the root (`root/sessionAdded`)
-  Notification(Notification),
+  /// A notice of the IDE (`root/sessionAdded`): a local app follows none
+  Notification { method: String },
   /// A request of the IDE: a local app serves none
   Request { method: String },
 }
@@ -184,8 +184,6 @@ struct FrameFields {
   #[serde(default)]
   method: Option<String>,
   #[serde(default)]
-  params: Option<Value>,
-  #[serde(default)]
   result: Option<Value>,
   #[serde(default)]
   error: Option<RpcError>,
@@ -196,18 +194,9 @@ struct FrameFields {
 /// # Errors
 /// The line is not JSON, or not a frame of JSON-RPC
 pub(crate) fn parse_frame(line: &[u8]) -> Result<Frame, String> {
-  let FrameFields {
-    id,
-    method,
-    params,
-    result,
-    error,
-  } = serde_json::from_slice(line).map_err(|error| error.to_string())?;
+  let FrameFields { id, method, result, error } = serde_json::from_slice(line).map_err(|error| error.to_string())?;
   match (id, method) {
-    (None | Some(Value::Null), Some(method)) => Ok(Frame::Notification(Notification {
-      method,
-      params: params.unwrap_or_default(),
-    })),
+    (None | Some(Value::Null), Some(method)) => Ok(Frame::Notification { method }),
     (Some(_), Some(method)) => Ok(Frame::Request { method }),
     (Some(id), None) => Ok(Frame::Response {
       id,
@@ -215,13 +204,6 @@ pub(crate) fn parse_frame(line: &[u8]) -> Result<Frame, String> {
     }),
     (None, None) => Err("a frame without an id and a method".to_owned()),
   }
-}
-
-/// A notice of the IDE: its method and its params
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Notification {
-  pub method: String,
-  pub params: Value,
 }
 
 /// The error object of a JSON-RPC error
@@ -296,337 +278,12 @@ pub struct Host {
   pub project_directory: PathBuf,
 }
 
-/// The result of `x-air-ij/targets`
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-pub struct TargetsResult {
-  pub targets: Vec<Target>,
-}
-
-/// An agent that Air can start, with the models it reports
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename = "AirTarget", rename_all = "camelCase")]
-pub struct Target {
-  /// The agent (`codex`); two targets can have the same agent on another surface
-  pub agent_id: String,
-  pub launch_target_id: String,
-  pub interaction_surface_id: String,
-  /// The name to show ("Codex")
-  pub name: String,
-  /// Empty when the agent reports no list: then a launch names no model, and any effort passes to the agent
-  #[serde(default)]
-  pub models: Vec<Model>,
-  /// The modes a launch can name (`LaunchRequest::mode`); empty when the agent has none
-  #[serde(default)]
-  pub modes: Vec<Mode>,
-  /// A launch can start in Plan (`LaunchRequest::plan`)
-  #[serde(default)]
-  pub plan: bool,
-  /// The IDE answered before the agent listed its models and modes: they can still change, and the targets asked again
-  /// later have them
-  #[serde(default)]
-  pub lists_loading: bool,
-}
-
-/// A mode of a target
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename = "AirMode", rename_all = "camelCase")]
-pub struct Mode {
-  pub id: String,
-  pub name: String,
-  pub kind: ModeKind,
-}
-
-/// What a mode does. A target whose Plan is a mode has a mode of kind `plan`: `plan` of a launch takes it
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename = "AirModeKind", rename_all = "snake_case")]
-pub enum ModeKind {
-  Plan,
-  AutoReview,
-  Standard,
-  FullAccess,
-  /// A kind of a later IDE
-  #[serde(other)]
-  Other,
-}
-
-/// A model of a target
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename = "AirModel", rename_all = "camelCase")]
-pub struct Model {
-  pub id: String,
-  pub name: String,
-  /// What tells two models of the same name apart, if anything
-  #[serde(default)]
-  pub qualifier: Option<String>,
-  /// The model the agent takes when a launch names none
-  #[serde(default)]
-  pub is_default: bool,
-  /// The lowercase effort ids the model takes; `auto` is not one: a launch without an effort keeps the agent's default
-  #[serde(default)]
-  pub reasoning_efforts: Vec<String>,
-}
-
-/// What a launch does in the IDE
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename = "AirStartKind", rename_all = "camelCase")]
-pub enum StartKind {
-  /// Starts the session and sends the prompt (`createSession`)
-  Run,
-  /// Opens a New Session tab with the agent, the model, the effort and the prompt, and sends nothing
-  /// (`x-air-ij/openDraft`)
-  Draft,
-}
-
-/// A launch as the page asks it
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename = "AirLaunchRequest", rename_all = "camelCase")]
-pub struct LaunchRequest {
-  /// The absolute path of the directory: the base of an open project, or a directory in it
-  pub project: String,
-  /// The target, with `interaction_surface_id`; none starts the default of the New Session button of the IDE
-  #[serde(default)]
-  pub launch_target_id: Option<String>,
-  /// The surface of the target; only with `launch_target_id`
-  #[serde(default)]
-  pub interaction_surface_id: Option<String>,
-  /// An id or a name of a model of the target; none for a target without models
-  #[serde(default)]
-  pub model: Option<String>,
-  /// One effort id; none keeps the default of the agent
-  #[serde(default)]
-  pub effort: Option<String>,
-  /// The id of a mode of the target; none keeps the default of the agent
-  #[serde(default)]
-  pub mode: Option<String>,
-  /// The session starts in Plan; false is not sent. With a mode of kind `plan` of the target, Plan is that mode, and
-  /// another `mode` beside it is `MODE_CONFLICT`
-  #[serde(default)]
-  pub plan: bool,
-  /// The effort id of Plan; only with `plan`, none keeps the default of the agent
-  #[serde(default)]
-  pub plan_effort: Option<String>,
-  /// Required for `run`; a draft without one opens with an empty prompt
-  #[serde(default)]
-  pub prompt: Option<String>,
-  /// The title the session list shows; only for `run`
-  #[serde(default)]
-  pub title: Option<String>,
-  pub start: StartKind,
-}
-
-impl LaunchRequest {
-  /// The params of `createSession` (`run`) or `x-air-ij/openDraft` (`draft`), which has no title
-  pub(crate) fn params(&self) -> SessionParams<'_> {
-    SessionParams {
-      project_directory: &self.project,
-      prompt: self.prompt.as_deref().unwrap_or_default(),
-      launch_target_id: self.launch_target_id.as_deref(),
-      interaction_surface_id: self.launch_target_id.as_ref().and(self.interaction_surface_id.as_deref()),
-      model: self.model.as_deref(),
-      effort: self.effort.as_deref(),
-      mode: self.mode.as_deref(),
-      plan: self.plan,
-      plan_effort: self.plan_effort.as_deref().filter(|_| self.plan),
-      title: self.title.as_deref().filter(|_| self.start == StartKind::Run),
-    }
-  }
-}
-
-/// The params of `createSession` and `x-air-ij/openDraft`: an option that is not set is not sent
+/// The params of `x-air-ij/openDraft`: the project and the prompt, and no route, so the IDE takes the default agent of
+/// its New Session button
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SessionParams<'a> {
+pub(crate) struct DraftParams<'a> {
+  /// The absolute path of the directory: the base of an open project, or a directory in it
   pub(crate) project_directory: &'a str,
   pub(crate) prompt: &'a str,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub(crate) launch_target_id: Option<&'a str>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub(crate) interaction_surface_id: Option<&'a str>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub(crate) model: Option<&'a str>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub(crate) effort: Option<&'a str>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub(crate) mode: Option<&'a str>,
-  #[serde(skip_serializing_if = "std::ops::Not::not")]
-  pub(crate) plan: bool,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub(crate) plan_effort: Option<&'a str>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub(crate) title: Option<&'a str>,
-}
-
-/// The params of a method of one host: `x-air-ij/targets`
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct HostParams<'a> {
-  pub(crate) project_directory: &'a str,
-}
-
-/// The result of `createSession`
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateSessionResult {
-  pub session: SessionIdentity,
-  /// The id that the agent gives the session, when the start knows it
-  #[serde(default)]
-  pub agent_session_id: Option<String>,
-}
-
-/// The local identity of a session: the key of its row
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionIdentity {
-  pub project_directory: String,
-  /// The `resource` of the row of the session
-  pub local_session_id: String,
-}
-
-/// The params of `listSessions`
-#[derive(Debug, Serialize)]
-pub(crate) struct ListSessionsParams<'a> {
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub(crate) cursor: Option<&'a str>,
-}
-
-/// The result of `listSessions`: a page of the rows, newest first
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ListSessionsResult {
-  pub(crate) items: Vec<SessionSummary>,
-  /// Present exactly when more rows follow
-  #[serde(default)]
-  pub(crate) next_cursor: Option<String>,
-}
-
-/// The row of a session, as `listSessions` and the root notices give it
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-pub struct SessionSummary {
-  /// The local session id
-  pub resource: String,
-  #[serde(default)]
-  pub title: Option<String>,
-  /// The facts of Air of the row: `_meta["x-air-ij"]`, with its `activity`
-  #[serde(default, rename = "_meta")]
-  pub meta: Option<Value>,
-}
-
-impl SessionSummary {
-  /// What the session does now (`_meta["x-air-ij"].activity`)
-  pub fn activity(&self) -> Activity {
-    Activity::of_meta(self.meta.as_ref())
-  }
-}
-
-/// The fields of a row that moved (`root/sessionSummaryChanged`); a field that did not move is absent
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
-pub struct SummaryChanges {
-  #[serde(default)]
-  pub title: Option<String>,
-  /// The facts of Air of the row, whole, when one of them moved
-  #[serde(default, rename = "_meta")]
-  pub meta: Option<Value>,
-}
-
-impl SummaryChanges {
-  /// The activity of the facts of Air that moved; none when they did not move
-  pub fn activity(&self) -> Option<Activity> {
-    self.meta.as_ref().map(|meta| Activity::of_meta(Some(meta)))
-  }
-}
-
-/// A change of the rows of the root, of a notice of the root
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum RootChange {
-  Added(SessionSummary),
-  Removed { session: String },
-  Changed { session: String, changes: SummaryChanges },
-}
-
-#[derive(Deserialize)]
-struct AddedParams {
-  summary: SessionSummary,
-}
-
-#[derive(Deserialize)]
-struct RemovedParams {
-  session: String,
-}
-
-#[derive(Deserialize)]
-struct ChangedParams {
-  session: String,
-  changes: SummaryChanges,
-}
-
-impl RootChange {
-  /// The change of a notice; none for a notice of another method
-  ///
-  /// # Errors
-  /// A notice of the root with params of another shape
-  pub fn of(notification: &Notification) -> Result<Option<Self>, String> {
-    let params = || notification.params.clone();
-    let parsed = match notification.method.as_str() {
-      "root/sessionAdded" => serde_json::from_value::<AddedParams>(params()).map(|it| Self::Added(it.summary)),
-      "root/sessionRemoved" => serde_json::from_value::<RemovedParams>(params()).map(|it| Self::Removed { session: it.session }),
-      "root/sessionSummaryChanged" => serde_json::from_value::<ChangedParams>(params()).map(|it| Self::Changed {
-        session: it.session,
-        changes: it.changes,
-      }),
-      _ => return Ok(None),
-    };
-    parsed.map(Some).map_err(|error| format!("{}: {error}", notification.method))
-  }
-}
-
-/// What a session does now
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename = "AirSessionActivity", rename_all = "snake_case")]
-pub enum Activity {
-  /// The agent waits for a prompt: the turn is done, and the user read it
-  Ready,
-  /// A New Session tab that sent nothing yet
-  Draft,
-  /// The agent works
-  Processing,
-  /// The changes of the agent wait for the review of the user
-  Reviewing,
-  /// The agent asks the user
-  NeedsInput,
-  /// The turn is done, and the user did not read it yet
-  Unread,
-  /// An activity of a later IDE, or none
-  Other,
-}
-
-impl Activity {
-  /// The activity of the facts of Air of a row, `_meta` with `x-air-ij.activity`
-  fn of_meta(meta: Option<&Value>) -> Self {
-    Self::of(meta.and_then(|meta| meta.get("x-air-ij")).and_then(|facts| facts.get("activity")))
-  }
-
-  /// The activity of its name: the name of `AgentSessionActivity` of the IDE (`NEEDS_INPUT`), in any case and with or
-  /// without `_`; any other value is `Other`
-  pub fn of(activity: Option<&Value>) -> Self {
-    let Some(name) = activity.and_then(Value::as_str) else {
-      return Self::Other;
-    };
-    let name: String = name.chars().filter(|it| *it != '_').map(|it| it.to_ascii_lowercase()).collect();
-    match name.as_str() {
-      "ready" => Self::Ready,
-      "draft" => Self::Draft,
-      "processing" => Self::Processing,
-      "reviewing" => Self::Reviewing,
-      "needsinput" => Self::NeedsInput,
-      "unread" => Self::Unread,
-      _ => Self::Other,
-    }
-  }
 }

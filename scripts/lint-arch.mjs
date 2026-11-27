@@ -297,8 +297,7 @@ export const APP_COMMAND_CALLERS = {
   install_ide_app: "src/hooks/useInstallAgentCli.ts",
   remove_ide_app: "src/hooks/useInstallAgentCli.ts",
   trim_pools: "src/hooks/useTrimPools.ts",
-  air_launch: "src/lib/air-launch.ts",
-  stop_air_watch: "src/lib/air-launch.ts",
+  air_open_draft: "src/lib/air-launch.ts",
   run_cli_tool_action: "src/stores/cli-tools.ts",
   cancel_cli_tool_action: "src/stores/cli-tools.ts",
 }

@@ -449,10 +449,7 @@ test.describe("Patronus merge", () => {
 })
 
 test.describe("Patronus failure", () => {
-  test("should tell when a running Safe Push failed, record it and start a session in the IDE from the toast, with Copy Prompt for Agent as the second option", async ({
-    page,
-    repo,
-  }) => {
+  test("should tell when a running Safe Push failed, record it and offer Start in Air in the toast, with Copy Prompt for Agent as the second option", async ({ page, repo }) => {
     await repo.setPatronus(availableRobots({ ...RUNNING, status: "failure", finishTime: 1704189000 }, FAILED, MERGED, DRY_RUN, OUTDATED))
     // a focus polls the running robot at once
     await emitTauriEvent(page, "tauri://focus")
@@ -469,8 +466,8 @@ test.describe("Patronus failure", () => {
     const activity = await openActivityWindow(page)
     await expect(activity.getByTestId("activity-title").filter({ hasText: "Safe Push of JIRA-456 failed" })).toBeVisible()
 
-    // the primary fix is Start in Air (open a session in the IDE); the second option copies the prompt for an agent elsewhere
-    await expect(toast.getByRole("button", { name: "Start in Air…" })).toBeVisible()
+    // the primary fix is Start in Air (the New Session tab in the IDE); the second option copies the prompt for an agent elsewhere
+    await expect(toast.getByRole("button", { name: "Start in Air" })).toBeVisible()
     await toast.getByRole("button", { name: "Copy Prompt for Agent" }).click()
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Copied the prompt for JIRA-456" })).toBeVisible()
     await expect.poll(() => readClipboard(page)).toContain("Safe Push of `JIRA-456` into `master` failed")

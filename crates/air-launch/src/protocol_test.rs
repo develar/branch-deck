@@ -1,7 +1,4 @@
-use crate::protocol::{
-  Activity, ENVELOPE_FRAME_BYTES, Frame, HandshakeLine, HandshakeRefusal, LaunchRequest, Notification, OPENER_LINE, Refusal, RpcError, SessionSummary, StartKind, SummaryChanges,
-  Target, envelope_line, handshake_line, parse_frame, request,
-};
+use crate::protocol::{ENVELOPE_FRAME_BYTES, Frame, HandshakeLine, HandshakeRefusal, OPENER_LINE, Refusal, RpcError, envelope_line, handshake_line, parse_frame, request};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -61,26 +58,14 @@ fn the_envelope_holds_the_echo_of_the_nonce_and_the_request_object_on_one_line()
 }
 
 #[test]
-fn a_target_without_lists_loading_has_its_lists() {
-  let target = |extra: serde_json::Value| {
-    let mut value = json!({"agentId": "codex", "launchTargetId": "codex", "interactionSurfaceId": "native", "name": "Codex"});
-    value.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-    serde_json::from_value::<Target>(value).unwrap().lists_loading
-  };
-  assert!(!target(json!({})));
-  assert!(!target(json!({"listsLoading": false})));
-  assert!(target(json!({"listsLoading": true})));
-}
-
-#[test]
 fn a_request_names_the_channel_of_the_root_and_its_params_must_be_an_object() {
   assert_eq!(
-    request(4, "listSessions", &()).unwrap(),
-    json!({"jsonrpc": "2.0", "id": 4, "method": "listSessions", "params": {"channel": "ahp-root://"}})
+    request(4, "x-air-ij/hosts", &()).unwrap(),
+    json!({"jsonrpc": "2.0", "id": 4, "method": "x-air-ij/hosts", "params": {"channel": "ahp-root://"}})
   );
   assert_eq!(
-    request(5, "x-air-ij/targets", &json!({"projectDirectory": "/work/app"})).unwrap(),
-    json!({"jsonrpc": "2.0", "id": 5, "method": "x-air-ij/targets", "params": {"channel": "ahp-root://", "projectDirectory": "/work/app"}})
+    request(5, "x-air-ij/openDraft", &json!({"projectDirectory": "/work/app", "prompt": "Fix it"})).unwrap(),
+    json!({"jsonrpc": "2.0", "id": 5, "method": "x-air-ij/openDraft", "params": {"channel": "ahp-root://", "projectDirectory": "/work/app", "prompt": "Fix it"}})
   );
   request(6, "x", &json!([1])).unwrap_err();
 }
@@ -101,10 +86,9 @@ fn a_frame_is_an_answer_a_notice_or_a_request_of_the_ide() {
   assert_eq!(error.code, -32603);
   assert_eq!(
     frame(json!({"jsonrpc": "2.0", "method": "root/sessionRemoved", "params": {"session": "s"}})).unwrap(),
-    Frame::Notification(Notification {
-      method: "root/sessionRemoved".to_owned(),
-      params: json!({"session": "s"}),
-    })
+    Frame::Notification {
+      method: "root/sessionRemoved".to_owned()
+    }
   );
   assert_eq!(
     frame(json!({"jsonrpc": "2.0", "id": 9, "method": "x-air-ide/ask", "params": {}})).unwrap(),
@@ -138,68 +122,4 @@ fn a_refusal_reads_the_code_message_and_hint_of_the_data_else_the_code_of_the_nu
   assert_eq!(error(json!({"code": -32600, "message": ""})).message, None);
   assert_eq!(error(json!({"code": -32602, "message": "m", "data": {"reason": "badParams"}})).code, "BAD_PARAMS");
   assert_eq!(error(json!({"code": 7, "message": "m"})).code, "ERROR_7");
-}
-
-#[test]
-fn the_activity_of_a_row_is_read_in_any_case_with_or_without_underscores() {
-  for (name, activity) in [
-    ("needsInput", Activity::NeedsInput),
-    ("NEEDS_INPUT", Activity::NeedsInput),
-    ("needs_input", Activity::NeedsInput),
-    ("processing", Activity::Processing),
-    ("READY", Activity::Ready),
-    ("reviewing", Activity::Reviewing),
-    ("unread", Activity::Unread),
-    ("DRAFT", Activity::Draft),
-    ("later", Activity::Other),
-  ] {
-    assert_eq!(Activity::of(Some(&json!(name))), activity, "{name}");
-  }
-  assert_eq!(Activity::of(None), Activity::Other);
-  assert_eq!(Activity::of(Some(&json!({"kind": "ready"}))), Activity::Other);
-}
-
-#[test]
-fn a_row_names_its_activity_in_the_facts_of_air_of_its_meta() {
-  let row = |value: serde_json::Value| serde_json::from_value::<SessionSummary>(value).unwrap().activity();
-  let facts = |activity: &str| json!({"x-air-ij": {"projectDirectory": "/work/app", "threadId": "t-1", "launchTargetId": "codex", "updatedAt": 1, "activity": activity, "archivable": false}});
-  assert_eq!(
-    row(json!({"resource": "s1", "title": "t", "activity": "ready", "_meta": facts("NEEDS_INPUT")})),
-    Activity::NeedsInput
-  );
-  // the top-level activity is not the one of Air
-  assert_eq!(row(json!({"resource": "s1", "title": "t", "activity": "ready"})), Activity::Other);
-  let changes = |value: serde_json::Value| serde_json::from_value::<SummaryChanges>(value).unwrap().activity();
-  assert_eq!(changes(json!({"_meta": facts("UNREAD")})), Some(Activity::Unread));
-  assert_eq!(changes(json!({"_meta": {}})), Some(Activity::Other));
-  assert_eq!(changes(json!({"title": "t", "modifiedAt": "2026-11-18T10:00:00.000Z"})), None);
-}
-
-#[test]
-fn the_params_of_a_launch_send_an_option_only_when_set_and_a_surface_only_with_a_target() {
-  let request = LaunchRequest {
-    project: "/work/app".to_owned(),
-    launch_target_id: None,
-    interaction_surface_id: Some("native".to_owned()),
-    model: None,
-    effort: None,
-    mode: None,
-    plan: false,
-    plan_effort: Some("high".to_owned()),
-    prompt: None,
-    title: Some("t".to_owned()),
-    start: StartKind::Draft,
-  };
-  assert_eq!(serde_json::to_value(request.params()).unwrap(), json!({"projectDirectory": "/work/app", "prompt": ""}));
-  let run = LaunchRequest {
-    launch_target_id: Some("codex".to_owned()),
-    plan: true,
-    prompt: Some("Fix it".to_owned()),
-    start: StartKind::Run,
-    ..request
-  };
-  assert_eq!(
-    serde_json::to_value(run.params()).unwrap(),
-    json!({"projectDirectory": "/work/app", "prompt": "Fix it", "launchTargetId": "codex", "interactionSurfaceId": "native", "plan": true, "planEffort": "high", "title": "t"})
-  );
 }

@@ -568,7 +568,7 @@ The rules of every hand-off (`RULES`, `prompt-text.ts`) MUST follow the steps.
 
 ### Requirement: Copying: A failed or failing robot offers Start in Air and both prompts
 
-A failed robot (not for missing approvals) and a running one whose required check failed MUST have "Start in Air…"
+A failed robot (not for missing approvals) and a running one whose required check failed MUST have "Start in Air"
 first, then "Copy Prompt for Agent" and "Copy Prompt with CI Details", after the restart or the cancel and before
 "Open in Patronus", in every form of the robot's actions (`getRobotActionItems`, as Rust offers them): the branch menu,
 the robot details and the [landing overview](../../repository/landing-overview/spec.md#overview).
@@ -576,19 +576,19 @@ the robot details and the [landing overview](../../repository/landing-overview/s
 #### Scenario: The actions of a failed robot
 - **GIVEN** a failed robot, not for missing approvals
 - **WHEN** Rust offers its actions
-- **THEN** they are the restart, "Start in Air…", "Copy Prompt for Agent", "Copy Prompt with CI Details", then "Open in Patronus"
+- **THEN** they are the restart, "Start in Air", "Copy Prompt for Agent", "Copy Prompt with CI Details", then "Open in Patronus"
   [@test] crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
 
 #### Scenario: A robot that failed for missing approvals
 - **GIVEN** a robot that failed for missing approvals
 - **WHEN** Rust offers its actions
-- **THEN** they have neither "Start in Air…" nor a prompt
+- **THEN** they have neither "Start in Air" nor a prompt
   [@test] crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
 
 #### Scenario: A running robot whose required check failed
 - **GIVEN** a running robot whose required check failed
 - **WHEN** Rust offers its actions
-- **THEN** "Start in Air…" and both prompts come after the cancel
+- **THEN** "Start in Air" and both prompts come after the cancel
   [@test] crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
 
 #### Scenario: A running robot whose checks did not fail
@@ -606,13 +606,13 @@ the robot details and the [landing overview](../../repository/landing-overview/s
 
 ### Requirement: Copying: Start in Air is the primary way to fix the failure
 
-"Start in Air" SHALL be the primary way to fix the failure (it opens a session in the IDE that has the repository
-open); the prompts are for a user who copies them into an agent elsewhere.
+"Start in Air" SHALL be the primary way to fix the failure (it opens the New Session tab in the IDE that has the
+repository open); the prompts are for a user who copies them into an agent elsewhere.
 
 #### Scenario: Start in Air comes before the prompts
 - **GIVEN** a failed robot
 - **WHEN** its actions are offered
-- **THEN** "Start in Air…" comes before both prompts
+- **THEN** "Start in Air" comes before both prompts
   [@test] crates/domain-policy/src/actions_test.rs (`a_robot_restarts_once_patronus_tells_why_it_failed_and_its_approvals_count`)
 
 ### Requirement: Copying: The robot details show Start in Air as the primary button
@@ -660,27 +660,25 @@ A failure MUST be "Cannot copy the prompt for auth" with the reason.
 
 ### Requirement: The failed toast: The toast offers Start in Air first and the prompt second
 
-The toast "Safe Push of auth failed" MUST offer "Start in Air" first (it opens a session in the IDE to fix the
-failure), with "Copy Prompt for Agent" as the second option (for a user who copies the prompt into an agent
-elsewhere). "Start in Air" opens the dialog of [Start in Air](../start-in-air/spec.md), whose start shows a toast of
-its own ("Started Codex in Air"); the copy turns the toast in place into "Copied the prompt for auth" / "Paste it into
-your coding agent".
+The toast "Safe Push of auth failed" MUST offer "Start in Air" first (it opens the New Session tab in the IDE to fix
+the failure), with "Copy Prompt for Agent" as the second option (for a user who copies the prompt into an agent
+elsewhere). "Start in Air" shows a toast of its own ([Start in Air](../start-in-air/spec.md), "Opening in Air…"); the
+copy turns the toast in place into "Copied the prompt for auth" / "Paste it into your coding agent".
 
 #### Scenario: The toast of a failed robot
 - **WHEN** the Safe Push of `auth` fails
 - **THEN** the toast "Safe Push of auth failed" offers "Start in Air" first, with "Copy Prompt for Agent" as the second option
   [@test] src/stores/patronus.test.ts (`tells once that a robot failed, with Start in Air and Copy Prompt for Agent beside it, and the failed checks, once its problems are read`)
-  [@test] tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and start a session in the IDE from the toast, with Copy Prompt for Agent as the second option`)
+  [@test] tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and offer Start in Air in the toast, with Copy Prompt for Agent as the second option`)
 
 #### Scenario: Start in Air from the toast
 - **WHEN** the user chooses "Start in Air" in the toast
-- **THEN** the dialog of Start in Air opens
-- **AND** a start in it shows a toast of its own, "Started Codex in Air"
+- **THEN** a toast of its own says "Opening in Air…", and then what the IDE answered
 
 #### Scenario: The toast turns in place after the copy
 - **WHEN** the user chooses "Copy Prompt for Agent" in the toast of `auth`
 - **THEN** it turns in place into "Copied the prompt for auth" / "Paste it into your coding agent"
-  [@test] tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and start a session in the IDE from the toast, with Copy Prompt for Agent as the second option`)
+  [@test] tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and offer Start in Air in the toast, with Copy Prompt for Agent as the second option`)
 
 ### Requirement: The failed toast: Builds that never started offer the restart first
 

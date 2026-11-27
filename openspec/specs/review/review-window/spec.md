@@ -313,7 +313,7 @@ bindings), the fix of a conflict, the forms and the rewrites of a commit.
 - **THEN** the catalog the page reads (`ROW_FORM_ACTIONS` of the bindings) names it as Rust does
   (`ActionId::opens_row_form`): a rename, a move, a stack, an ungroup, the amend, the issue reference, the squash,
   unapply, park, a declared need, the typed delete of a kept branch, the popover of a Safe Push and of its rarer starts,
-  Request Review and Start in Air, a push (also with its children), which asks at the row when it would drop remote
+  Request Review, a push (also with its children), which asks at the row when it would drop remote
   commits, the pick of remote commits, the push into the target and the merge of the pull request of a landing, the
   close of the pull request of a stack
 - **AND** the window does not run it itself

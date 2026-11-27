@@ -6,6 +6,7 @@ import { readClipboard } from "../helpers/clipboard-helpers"
 import { availableRobots, failedFastTests, robot, setupRobotsWith } from "../helpers/patronus-helpers"
 import { hoverStatusChip } from "../helpers/review-status-helpers"
 import { pressAndExpectSettingsOpened } from "../helpers/settings-helpers"
+import { expectClosed } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; the fake Patronus fails the robot with one failed check
 const RUNNING = robot("JIRA-456", "running-robot")
@@ -39,6 +40,20 @@ test.describe("Prompt for an agent of a failed Safe Push", () => {
     expect(prompt).not.toContain("## Failed builds")
     // a menu copies without a toast
     await expect(page.locator("[data-slot=toast]")).toHaveCount(0)
+  })
+
+  test("should say that no IDE with Air has the repository open on Start in Air, and copy the prompt from its toast", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the test server has no instance files of an IDE with Air: no IDE answers
+    await setupRobotsWith(page, setupRepo, syncAndWaitForBranches, { patronusDetails: failedFastTests("failed-robot") }, RUNNING, FAILED)
+    await openMenu(page, "ABC-123")
+    await page.getByRole("menuitem", { name: "Start in Air" }).click()
+
+    const toast = page.locator("[data-slot=toast]").filter({ hasText: /No IDE with Air has .+ open/ })
+    await expect(toast).toContainText("Open the repository in an IDE with Air and try again, or copy the prompt")
+    await toast.getByRole("button", { name: "Copy Prompt" }).click()
+    await expect(page.locator("[data-slot=toast]").filter({ hasText: "Copied the prompt for ABC-123" })).toBeVisible()
+    await expectClosed(toast)
+    await expect.poll(() => readClipboard(page)).toContain("Safe Push of `ABC-123` into `master` failed: https://patronus.labs.jb.gg/robot/failed-robot")
   })
 
   test("should collect the CI details for the full prompt, and say what it copied", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -86,7 +101,7 @@ test.describe("Prompt for an agent of a failed Safe Push", () => {
     await setupRobotsWith(page, setupRepo, syncAndWaitForBranches, { patronusDetails: failedFastTests("failed-robot") }, RUNNING, FAILED)
     const popover = await hoverStatusChip(page, findBranchRow(page, "ABC-123").getByTestId("patronus-chip"), "patronus-popover")
     // Start in Air first (the primary way to fix), Copy Prompt for Agent beside it
-    await expect(popover.getByRole("button", { name: "Start in Air…" })).toBeVisible()
+    await expect(popover.getByRole("button", { name: "Start in Air" })).toBeVisible()
     await popover.getByRole("button", { name: "Copy Prompt for Agent" }).click()
     await expect.poll(() => readClipboard(page)).toContain("Safe Push of `ABC-123` into `master` failed")
     expect(await readClipboard(page)).not.toContain("## Failed builds")

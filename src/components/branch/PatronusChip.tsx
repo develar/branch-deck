@@ -372,7 +372,7 @@ export function RobotOpenButton({ actions }: { actions: readonly RobotAction[] }
  * The actions of a robot below its details, named as in the branch menu (a bare "Cancel" reads like closing the
  * popover), "Open in Patronus" aside (`RobotOpenButton`): what decides the robot first, its restart as the primary button
  * (it pushes a change not pushed yet first, cancels a running robot first) and its cancel, after `leading`; then
- * "Start in Air" as the primary way to fix (it opens a session in the IDE that has the repository open), the prompt for
+ * "Start in Air" as the primary way to fix (it opens the New Session tab in the IDE that has the repository open), the prompt for
  * an agent, its variant with the CI details in the menu of its split button, and the pull request it was started from.
  * The first row stands next to the edge the card hangs by (`data-hang`), so the second, which goes when the robot
  * turns out to need review, moves no first-row action

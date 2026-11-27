@@ -75,7 +75,7 @@ pub enum AppReason {
   /// The reviewed pair of a local branch (`refs/branch-deck/reviewed/`), one writer with CAS
   /// (`review_plan::mark_reviewed::mark_reviewed_core`); no session reads it
   ReviewedRefs,
-  /// A session of an agent that the IDE starts on the consent of the user (Start in Air): nothing of the app or of a
+  /// The New Session tab that the IDE opens on the consent of the user (Start in Air): nothing of the app or of a
   /// repository changes
   AgentLaunch,
   /// The lease pools of this Mac, each written under its own pool lock (`lease_pool::trim`); no session reads them

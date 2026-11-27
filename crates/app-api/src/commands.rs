@@ -396,22 +396,10 @@ macro_rules! for_each_command {
       /// the version of the app that wrote it; an error when the app can't tell its binary (no `brd.exe` next to it)
       read window agent_cli_command(repository_path: String) -> $crate::app::agent_cli::AgentCliCommand = $crate::app::agent_cli::agent_cli_command;
 
-      /// The agents of the IDE with Air that has `params.project` open, with their models and efforts (Start in Air); no IDE
-      /// and a refusal of the IDE are answers. The IDE may ask the user first: the answer can take up to 120 s
-      read json air_launch_targets(params: $crate::app::air_launch::AirTargetsParams) -> $crate::app::air_launch::AirTargetsAnswer = $crate::app::air_launch::air_launch_targets;
-
-      /// Starts an agent session in the IDE with Air that has `params.project` open, or opens a draft of it (Start in Air);
-      /// without a target the IDE starts the default of its New Session button. No IDE and a refusal of the IDE are
-      /// answers. The IDE may ask the user first: the answer can take up to 120 s
-      app(AgentLaunch) json air_launch(params: air_launch::protocol::LaunchRequest) -> $crate::app::air_launch::AirLaunchAnswer = $crate::app::air_launch::air_launch;
-
-      /// Watches the session that a launch of Start in Air started in the IDE with Air that has `params.project` open: the
-      /// status of its row to `statuses` now and after each change, until the row is removed, the IDE closes the
-      /// connection, `stop_air_watch`, or the page of the window goes away. No IDE and a refusal of the IDE are answers
-      read window air_watch_session(params: $crate::app::air_launch::AirWatchParams) [channel statuses: $crate::app::air_launch::AirSessionStatus] -> $crate::app::air_launch::AirWatchEnd = $crate::app::air_launch::air_watch_session;
-
-      /// Stops the watch of the session `local_session_id` that the calling window runs, if any
-      app(CanceledRead) now stop_air_watch(local_session_id: String) = $crate::app::air_launch::stop_air_watch;
+      /// Opens the New Session tab with `params.prompt` in the IDE with Air that has `params.project` open, with the default
+      /// agent of its New Session button (Start in Air). No IDE and a refusal of the IDE are answers. The IDE may ask the
+      /// user first: the answer can take up to 120 s
+      app(AgentLaunch) json air_open_draft(params: $crate::app::air_launch::AirDraftParams) -> $crate::app::air_launch::AirDraftAnswer = $crate::app::air_launch::air_open_draft;
 
       /// Turns Unattended Mode on or off (the title bar, the command palette): the setting through the writer of the
       /// settings, which every window hears; on from off starts the list of denied requests anew. Answers the mode with

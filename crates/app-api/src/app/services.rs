@@ -536,7 +536,6 @@ impl<S: ContextSource> AppServices<S> {
       app_desktop: parts.desktop,
       sub_windows: Arc::default(),
       cli_tools: crate::app::cli_tools::CliToolsState::default(),
-      air_watches: Arc::default(),
       config_writers: Arc::default(),
       runtime: parts.runtime,
     }

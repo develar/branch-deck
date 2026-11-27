@@ -426,24 +426,11 @@ export const commands = {
 	 */
 	agentCliCommand: (repositoryPath: string) => typedError<AgentCliCommand, ApiError>("agent_cli_command", __TAURI_INVOKE("agent_cli_command", { repositoryPath })),
 	/**
-	 *  The agents of the IDE with Air that has `params.project` open, with their models and efforts (Start in Air); no IDE
-	 *  and a refusal of the IDE are answers. The IDE may ask the user first: the answer can take up to 120 s
+	 *  Opens the New Session tab with `params.prompt` in the IDE with Air that has `params.project` open, with the default
+	 *  agent of its New Session button (Start in Air). No IDE and a refusal of the IDE are answers. The IDE may ask the
+	 *  user first: the answer can take up to 120 s
 	 */
-	airLaunchTargets: (params: AirTargetsParams) => typedError<AirTargetsAnswer, ApiError>("air_launch_targets", __TAURI_INVOKE("air_launch_targets", { params })),
-	/**
-	 *  Starts an agent session in the IDE with Air that has `params.project` open, or opens a draft of it (Start in Air);
-	 *  without a target the IDE starts the default of its New Session button. No IDE and a refusal of the IDE are
-	 *  answers. The IDE may ask the user first: the answer can take up to 120 s
-	 */
-	airLaunch: (params: AirLaunchRequest) => typedError<AirLaunchAnswer, ApiError>("air_launch", __TAURI_INVOKE("air_launch", { params })),
-	/**
-	 *  Watches the session that a launch of Start in Air started in the IDE with Air that has `params.project` open: the
-	 *  status of its row to `statuses` now and after each change, until the row is removed, the IDE closes the
-	 *  connection, `stop_air_watch`, or the page of the window goes away. No IDE and a refusal of the IDE are answers
-	 */
-	airWatchSession: (params: AirWatchParams, statuses: Channel<AirSessionStatus>) => typedError<AirWatchEnd, ApiError>("air_watch_session", __TAURI_INVOKE("air_watch_session", { params, statuses })),
-	/**  Stops the watch of the session `local_session_id` that the calling window runs, if any */
-	stopAirWatch: (localSessionId: string) => typedError<null, ApiError>("stop_air_watch", __TAURI_INVOKE("stop_air_watch", { localSessionId })),
+	airOpenDraft: (params: AirDraftParams) => typedError<AirDraftAnswer, ApiError>("air_open_draft", __TAURI_INVOKE("air_open_draft", { params })),
 	/**
 	 *  Turns Unattended Mode on or off (the title bar, the command palette): the setting through the writer of the
 	 *  settings, which every window hears; on from off starts the list of denied requests anew. Answers the mode with
@@ -479,7 +466,7 @@ export const commands = {
 /* Constants */
 export const APP_SETTINGS_DEFAULTS = {"autoSyncOnFocus":true,"patronusNewApi":false,"systemTitleBar":false,"unattended":false,"zoom":1} as const;
 
-export const ROW_FORM_ACTIONS = ["safe-push","safe-push-with-profile","dry-run","safe-push-without-review","safe-push-request-review","push","push-with-children","pick-remote-commits","push-to-baseline","merge-pull-request","request-review","request-shown-review","close-shown-review","mark-shown-review","cancel-shown-review","rename","move-to","stack-on","ungroup","amend-changes","add-issue-reference","squash-fixups","unapply","park","add-need","delete-kept-branch","safe-push-whole-stack","dry-run-whole-stack","safe-push-main-line","close-stack-pull-request","start-robot-in-air"] as const;
+export const ROW_FORM_ACTIONS = ["safe-push","safe-push-with-profile","dry-run","safe-push-without-review","safe-push-request-review","push","push-with-children","pick-remote-commits","push-to-baseline","merge-pull-request","request-review","request-shown-review","close-shown-review","mark-shown-review","cancel-shown-review","rename","move-to","stack-on","ungroup","amend-changes","add-issue-reference","squash-fixups","unapply","park","add-need","delete-kept-branch","safe-push-whole-stack","dry-run-whole-stack","safe-push-main-line","close-stack-pull-request"] as const;
 
 /* Types */
 /**  An account of the app, which a sign-out removes the token of */
@@ -624,7 +611,7 @@ export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "che
  *  no longer matches the stack (a landing took the root, or the stack no longer forks)
  */
 "close-stack-pull-request" | "review-whole-stack" | "restart-robot" | "push-and-restart-robot" | "cancel-robot" | "copy-robot-prompt" | "copy-robot-full-prompt" | 
-/**  Opens the dialog that starts an agent session in Air with the prompt (openspec/specs/branch/start-in-air/spec.md) */
+/**  Opens the New Session tab of Air with the prompt (openspec/specs/branch/start-in-air/spec.md) */
 "start-robot-in-air" | "open-robot" | "open-robot-pull-request" | "review" | "approve" | 
 /**  Approve and Safe Push, or the Safe Push alone after an approval of the head */
 "safe-push-pull-request" | "request-changes" | 
@@ -755,6 +742,23 @@ export type AgentRules = {
 	pull_request: boolean,
 };
 
+/**  How the open of the New Session tab went */
+export type AirDraftAnswer = 
+/**  No running IDE with Air has the directory or a parent of it open */
+{ status: "noIde" } | 
+/**  The IDE opened the New Session tab with the prompt */
+{ status: "opened"; ide: AirIde } | 
+/**  The code of the refusal (`DENIED`, `error.data.code`), and the English text of the IDE for a log */
+{ status: "refused"; ide: AirIde; code: string; message: string | null };
+
+/**  What `air_open_draft` asks */
+export type AirDraftParams = {
+	/**  The absolute path of the directory the session works in */
+	project: string,
+	/**  The text of the New Session tab */
+	prompt: string,
+};
+
 /**  The IDE that answered */
 export type AirIde = {
 	/**  The product code (`IU`) */
@@ -763,150 +767,6 @@ export type AirIde = {
 	build: string,
 	/**  The launch directory of the IDE that holds the directory (its host): the directory or one of its parents */
 	project: string,
-};
-
-/**  How a launch went */
-export type AirLaunchAnswer = { status: "noIde" } | 
-/**  The session started; `local_session_id` is the key of its row, none for a draft */
-{ status: "accepted"; ide: AirIde; localSessionId: string | null } | { status: "refused"; ide: AirIde; code: string; message: string | null };
-
-/**  A launch as the page asks it */
-export type AirLaunchRequest = {
-	/**  The absolute path of the directory: the base of an open project, or a directory in it */
-	project: string,
-	/**  The target, with `interaction_surface_id`; none starts the default of the New Session button of the IDE */
-	launchTargetId?: string | null,
-	/**  The surface of the target; only with `launch_target_id` */
-	interactionSurfaceId?: string | null,
-	/**  An id or a name of a model of the target; none for a target without models */
-	model?: string | null,
-	/**  One effort id; none keeps the default of the agent */
-	effort?: string | null,
-	/**  The id of a mode of the target; none keeps the default of the agent */
-	mode?: string | null,
-	/**
-	 *  The session starts in Plan; false is not sent. With a mode of kind `plan` of the target, Plan is that mode, and
-	 *  another `mode` beside it is `MODE_CONFLICT`
-	 */
-	plan?: boolean,
-	/**  The effort id of Plan; only with `plan`, none keeps the default of the agent */
-	planEffort?: string | null,
-	/**  Required for `run`; a draft without one opens with an empty prompt */
-	prompt?: string | null,
-	/**  The title the session list shows; only for `run` */
-	title?: string | null,
-	start: AirStartKind,
-};
-
-/**  A mode of a target */
-export type AirMode = {
-	id: string,
-	name: string,
-	kind: AirModeKind,
-};
-
-/**  What a mode does. A target whose Plan is a mode has a mode of kind `plan`: `plan` of a launch takes it */
-export type AirModeKind = "plan" | "auto_review" | "standard" | "full_access" | 
-/**  A kind of a later IDE */
-string;
-
-/**  A model of a target */
-export type AirModel = {
-	id: string,
-	name: string,
-	/**  What tells two models of the same name apart, if anything */
-	qualifier?: string | null,
-	/**  The model the agent takes when a launch names none */
-	isDefault?: boolean,
-	/**  The lowercase effort ids the model takes; `auto` is not one: a launch without an effort keeps the agent's default */
-	reasoningEfforts?: string[],
-};
-
-/**  What a session does now */
-export type AirSessionActivity = 
-/**  The agent waits for a prompt: the turn is done, and the user read it */
-"ready" | 
-/**  A New Session tab that sent nothing yet */
-"draft" | 
-/**  The agent works */
-"processing" | 
-/**  The changes of the agent wait for the review of the user */
-"reviewing" | 
-/**  The agent asks the user */
-"needs_input" | 
-/**  The turn is done, and the user did not read it yet */
-"unread" | 
-/**  An activity of a later IDE, or none */
-"other";
-
-/**  The status of the watched session, now and after each change */
-export type AirSessionStatus = {
-	/**  The title of the session list, if the IDE names one */
-	title: string | null,
-	activity: AirSessionActivity,
-};
-
-/**  What a launch does in the IDE */
-export type AirStartKind = 
-/**  Starts the session and sends the prompt (`createSession`) */
-"run" | 
-/**
- *  Opens a New Session tab with the agent, the model, the effort and the prompt, and sends nothing
- *  (`x-air-ij/openDraft`)
- */
-"draft";
-
-/**  An agent that Air can start, with the models it reports */
-export type AirTarget = {
-	/**  The agent (`codex`); two targets can have the same agent on another surface */
-	agentId: string,
-	launchTargetId: string,
-	interactionSurfaceId: string,
-	/**  The name to show ("Codex") */
-	name: string,
-	/**  Empty when the agent reports no list: then a launch names no model, and any effort passes to the agent */
-	models?: AirModel[],
-	/**  The modes a launch can name (`LaunchRequest::mode`); empty when the agent has none */
-	modes?: AirMode[],
-	/**  A launch can start in Plan (`LaunchRequest::plan`) */
-	plan?: boolean,
-	/**
-	 *  The IDE answered before the agent listed its models and modes: they can still change, and the targets asked again
-	 *  later have them
-	 */
-	listsLoading?: boolean,
-};
-
-/**  The agents of the IDE of a directory */
-export type AirTargetsAnswer = 
-/**  No running IDE with Air has the directory or a parent of it open */
-{ status: "noIde" } | { status: "listed"; ide: AirIde; targets: AirTarget[] } | 
-/**  The code of the refusal (`DENIED`, `error.data.code`), and the English text of the IDE for a log */
-{ status: "refused"; ide: AirIde; code: string; message: string | null };
-
-/**  What `air_launch_targets` asks */
-export type AirTargetsParams = {
-	/**  The absolute path of the directory the session works in */
-	project: string,
-};
-
-/**  How a watch ended */
-export type AirWatchEnd = { status: "noIde" } | 
-/**  The IDE refused the connection or the list of the rows (`DENIED`) */
-{ status: "refused"; code: string; message: string | null } | 
-/**  The row of the session is removed: the session is gone */
-{ status: "gone" } | 
-/**  The IDE closed the connection */
-{ status: "closed" } | 
-/**  The page stopped it, a newer watch of the session replaced it, or the page of its window went away */
-{ status: "stopped" };
-
-/**  What `air_watch_session` asks */
-export type AirWatchParams = {
-	/**  The absolute path of the directory the session works in, as the launch named it */
-	project: string,
-	/**  The local session id, as the accepted launch answered it: the `resource` of the row of the session */
-	localSessionId: string,
 };
 
 /**  Result type for amend command that can be properly serialized by Tauri */

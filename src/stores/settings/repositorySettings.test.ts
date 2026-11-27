@@ -17,6 +17,11 @@ describe("ProjectMetadataSchema", () => {
     expect(ProjectMetadataSchema.parse({ path: "/repo", cachedBranchPrefix: { prefix: "jane", source: "app_setting" } })).toEqual({ path: "/repo" })
   })
 
+  it("keeps no choice of Start in Air: the New Session tab of Air picks the agent", () => {
+    const airLaunch = { launchTargetId: "codex", interactionSurfaceId: "native", model: null, effort: null, start: "run" }
+    expect(ProjectMetadataSchema.parse({ path: "/repo", airLaunch })).toEqual({ path: "/repo" })
+  })
+
   it("drops malformed issue links, not the project", () => {
     expect(ProjectMetadataSchema.parse({ path: "/repo", parkedCollapsed: true, issueNavigationConfig: { links: [{ issueRegexp: 1 }] } })).toEqual({
       path: "/repo",

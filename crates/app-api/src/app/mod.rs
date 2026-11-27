@@ -22,7 +22,7 @@
 //! the stay while an IDE is connected, openspec/specs/repository/ide-embedding/spec.md), what it does on the desktop (`desktop`: the folder dialog, the native menu, the
 //! restart, the updater), its agent CLI (`agent_cli`, openspec/specs/cli/agent-cli/spec.md) and the CLIs of Settings → Tools
 //! (`cli_tools`, openspec/specs/repository/cli-tools/spec.md), the disk of the lease pools of this Mac and of the hosts (`disk`,
-//! openspec/specs/repository/disk-usage/spec.md); beside the app, Start in Air: the launch of an agent session in the
+//! openspec/specs/repository/disk-usage/spec.md); beside the app, Start in Air: the New Session tab of a prompt in the
 //! IDE (`air_launch`, openspec/specs/branch/start-in-air/spec.md).
 
 pub mod activity;
