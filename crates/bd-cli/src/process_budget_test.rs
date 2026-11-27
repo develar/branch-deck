@@ -1807,7 +1807,8 @@ fn leased_repo() -> (TestRepo, tempfile::TempDir, bd_core::context::Environment,
 /// readme alone, so before its replay the update compares their patch ids (`diff-tree --name-only` of both sides, then
 /// `diff-tree -p` with `patch-id --stable`): they differ. After the conflict it reads their changed lines
 /// (`diff-tree -p -U0`), which sum to no candidate. The round reads the attributes that mark a generated file
-/// (`check-attr`, for its `generated_by`)
+/// (`check-attr`, for its `generated_by`). The update looks for no resolve session of the lease with a `cat-file`: the
+/// `rev-parse` of the directories of the command listed the session refs, none of the lease (`SESSION_REF_GLOB`)
 #[test]
 fn a_lease_pick_that_conflicts() {
   let (repo, _home, environment, got) = leased_repo();
@@ -1863,7 +1864,7 @@ fn a_lease_pick_that_conflicts() {
   assert_processes(
     &lease,
     &[
-      ("cat-file", 6),
+      ("cat-file", 5),
       ("check-attr", 3),
       ("config", 2),
       ("diff-tree", 5),
@@ -2788,7 +2789,8 @@ fn a_review_after_landing() {
 /// `config` of the snapshot), then the pairing by the merged pull request reads what update-core's
 /// `a_conflicting_update_of_a_pull_request_squashed_under_a_noreply_address_reads_its_merge_commit_once` pins (one `log`
 /// of the merge commit's author, one `rev-list` of the head), and the update applies with both commits landed as the
-/// squash. A clean update asks nothing (`a_clean_update_asks_no_merged_pull_requests` of update-core)
+/// squash. A clean update asks nothing (`a_clean_update_asks_no_merged_pull_requests` of update-core). The session refs
+/// that the `rev-parse` of the directories of the command lists name none of the worktree: no `cat-file` looks for one
 #[test]
 fn a_conflicting_brd_update_of_a_pull_request_squashed_under_a_noreply_address_asks_github_once() {
   let (upstream, clone, squash) = crate::fixture_test::squashed_under_noreply("a\nB2\nc\n");
@@ -2808,6 +2810,6 @@ fn a_conflicting_brd_update_of_a_pull_request_squashed_under_a_noreply_address_a
   assert!(matches!(output, bd_update::update_command::UpdateCommandOutput::Update(_)), "{output:?}");
   assert_eq!(clone.head(), upstream.head());
   assert_eq!(fake.requests_to("POST", "/graphql").len(), 1);
-  // the config of the ask; brd reads one more object batch than the core
-  assert_processes(&context, &with_process_deltas(NOREPLY_SQUASH_UPDATE, &[("cat-file", 1), ("config", 1)]));
+  // the config of the ask
+  assert_processes(&context, &with_process_deltas(NOREPLY_SQUASH_UPDATE, &[("config", 1)]));
 }

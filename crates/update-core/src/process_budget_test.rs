@@ -148,10 +148,11 @@ fn a_clean_update_whose_commits_went_empty_reads_their_changed_lines_once() {
   );
 }
 
-/// `brd update` of the rebase of `an_update_after_its_fetch` (`update_and_resolve`): the same update after the look for
-/// a resolve session of the worktree (one `cat-file` of its ref, none), and after the move the generated files that the
-/// local commit and the upstream both changed, for `verify.regenerate`: two `diff-tree`, the paths of each side since the
-/// merge base, and none in common, so neither `check-attr` nor `cat-file` follows
+/// `brd update` of the rebase of `an_update_after_its_fetch` (`update_and_resolve`): the same update, whose `rev-parse`
+/// of the directories lists the session refs too (`--glob`): none of the worktree, so no `cat-file` looks for a session;
+/// after the move the generated files that the local commit and the upstream both changed, for `verify.regenerate`: two
+/// `diff-tree`, the paths of each side since the merge base, and none in common, so neither `check-attr` nor `cat-file`
+/// follows
 #[test]
 fn a_bd_update_reads_the_generated_files_both_sides_changed() {
   let fixture = fetched_update();
@@ -168,7 +169,7 @@ fn a_bd_update_reads_the_generated_files_both_sides_changed() {
     panic!("a clean update started a resolve session");
   };
   assert!(result.applied.is_some() && regenerate.is_empty(), "{result:?} {regenerate:?}");
-  assert_processes(&git, &with_added_processes(UPDATE, &[("cat-file", 1), ("diff-tree", 2)]));
+  assert_processes(&git, &with_added_processes(UPDATE, &[("diff-tree", 2)]));
 }
 
 #[cfg(any(unix, windows))]
@@ -422,8 +423,9 @@ fn lost_bindings_round(git: &GitCommandExecutor, repo: &TestRepo) -> crate::reso
   }
 }
 
-/// `brd update` of the incident: the check of `an_update_whose_clean_replay_loses_bindings` after the look for a
-/// resolve session of the worktree (`cat-file`), then the session starts at the lost-bindings round on the tip the check
+/// `brd update` of the incident: the check of `an_update_whose_clean_replay_loses_bindings` (the session refs that the
+/// `rev-parse` of the directories lists name none of the worktree: no `cat-file` looks for a session), then the session
+/// starts at the lost-bindings round on the tip the check
 /// replayed, with no replay of its own: after the sweep of stale temporary refs (`for-each-ref`) and the committer
 /// (`var`), the ids and modes of the round's file at the tip, before and in the copy (`cat-file --batch-check`) and its
 /// objects (`cat-file --batch`); under the lock the witness (`rev-parse`, `symbolic-ref`), the state commit and the
@@ -439,7 +441,7 @@ fn a_bd_update_whose_clean_replay_loses_bindings_opens_its_round() {
   assert_processes(
     &git,
     &[
-      ("cat-file", 6),
+      ("cat-file", 5),
       ("config", 2),
       ("diff-tree", 5),
       ("fast-import", 1),

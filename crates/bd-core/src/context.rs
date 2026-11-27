@@ -10,7 +10,8 @@ use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
 use git_ops::lease_slot::object_cache_dir;
-use git_ops::revs::{current_branch, repository_dirs, with_repository_dirs};
+use git_ops::revs::{current_branch, repository_dirs_listing, with_listed_refs, with_repository_dirs};
+use git_ops::update_resolve::SESSION_REF_GLOB;
 use github::client::GITHUB_API_URL;
 use github::token::TokenSources;
 use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
@@ -228,13 +229,15 @@ impl RepoContext {
       return Err(CliError::new(ErrorCode::NotARepository, format!("No such directory: {}", directory.display())));
     }
     let directory = directory.to_string_lossy();
-    let Some(dirs) = repository_dirs(&git, &directory)? else {
+    // with the resolve sessions of the repository: `brd update` knows from them that its worktree has none, without a
+    // read of its own (`update_core::update_project::update_and_resolve`)
+    let Some((dirs, sessions)) = repository_dirs_listing(&git, &directory, SESSION_REF_GLOB)? else {
       return Err(CliError::new(ErrorCode::NotARepository, format!("Not inside a git working tree: {directory}")));
     };
     let repository = dirs.top_level.clone();
     let git_common_dir = PathBuf::from(&dirs.git_common_dir);
     // every step of the command takes the directories from here: the guards, the lock, the worktree, a dry run's index
-    let git = with_repository_dirs(&git, &repository, dirs);
+    let git = with_listed_refs(&with_repository_dirs(&git, &repository, dirs), &repository, SESSION_REF_GLOB, sessions);
 
     // the config the sync reads too: one `git config` for the prefix, the settings and the descriptions
     let mut config = None;

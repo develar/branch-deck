@@ -1,6 +1,6 @@
 use crate::revs::{
-  DetachedHead, RepositoryDirs, checked_out_branch, current_branch, current_worktree, fork_point, git_common_dir, is_ancestor, known_dirs, merge_base, read_head, ref_exists,
-  ref_tips, repository_dirs, resolve_commit, resolve_tree_id, tips_under, with_dirs_of,
+  DetachedHead, RepositoryDirs, checked_out_branch, current_branch, current_worktree, fork_point, git_common_dir, is_ancestor, known_dirs, listed_refs, merge_base, read_head,
+  ref_exists, ref_tips, repository_dirs, repository_dirs_listing, resolve_commit, resolve_tree_id, tips_under, with_dirs_and_refs_of, with_dirs_of,
 };
 use crate::rewrite_guard::find_operation_in_progress;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -156,6 +156,34 @@ fn the_dirs_of_a_worktree_and_none_outside_one() {
   assert_eq!(repository_dirs(git, &format!("{path}/sub dir")).unwrap(), Some(expected));
   // inside the git directory there is no working tree
   assert_eq!(repository_dirs(git, &format!("{path}/.git")).unwrap(), None);
+}
+
+/// The `rev-parse` of the directories lists the refs of a glob too, in the same process, as full names, and none when
+/// none matches; with the directories known the refs come from what the entry listed, without a process, and nothing
+/// when it listed none
+#[test]
+fn the_directories_list_the_refs_of_a_glob_in_the_same_process() {
+  let repo = TestRepo::new();
+  let head = repo.create_commit("first", "a.txt", "a\n");
+  let path = repo.path_str();
+  let glob = "refs/branch-deck/resolve/*";
+  let counted = counting();
+  let (dirs, names) = repository_dirs_listing(&counted, path, glob).unwrap().unwrap();
+  assert_eq!((Some(dirs), names), (repository_dirs(repo.git_executor(), path).unwrap(), Vec::<String>::new()));
+  repo.git(&["update-ref", "refs/branch-deck/resolve/main", &head]);
+  repo.git(&["update-ref", "refs/branch-deck/resolve/lane", &head]);
+  let (git, names) = with_dirs_and_refs_of(&counted, path, glob).unwrap();
+  let mut names = names.unwrap();
+  names.sort();
+  assert_eq!(names, ["refs/branch-deck/resolve/lane", "refs/branch-deck/resolve/main"]);
+  assert_processes(&counted, &[("rev-parse", 2)]);
+
+  // known: from the listing of the entry, no process; a listing of no glob gives none
+  let (again, known) = with_dirs_and_refs_of(&git, path, glob).unwrap();
+  assert_eq!(known.map(|names| names.len()), Some(2));
+  assert_eq!(listed_refs(&again, path, "refs/other/*"), None);
+  assert_eq!(with_dirs_and_refs_of(&with_dirs_of(&GitCommandExecutor::new(), path).unwrap(), path, glob).unwrap().1, None);
+  assert_processes(&counted, &[("rev-parse", 2)]);
 }
 
 #[test]

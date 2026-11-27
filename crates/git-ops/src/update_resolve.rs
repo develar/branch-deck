@@ -41,6 +41,9 @@ use tracing::{debug, info, instrument};
 /// The session refs, one per worktree: shared refs, so a `gc` in any worktree keeps their objects (a `refs/worktree/`
 /// ref is invisible to the gc of another worktree)
 pub const SESSION_REF_PREFIX: &str = "refs/branch-deck/resolve/";
+/// The glob of every session ref, which the entry of a `brd` command lists with its directories
+/// (`revs::repository_dirs_listing`)
+pub const SESSION_REF_GLOB: &str = "refs/branch-deck/resolve/*";
 /// The audit record of a session: a note per resolved commit, written only by the finish
 pub const RESOLVE_NOTES_REF: &str = "refs/notes/branch-deck/resolve";
 const STATE_FILE: &str = "state.json";

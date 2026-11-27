@@ -1964,7 +1964,13 @@ grouping inputs, then suggests `brd unapply <branch>` only when `sync_core::unap
 
 **Binding.** A session belongs to one worktree and one branch, and keeps the upstream tip it started with; it never
 fetches. There is one session per worktree, so no id is needed, and `brd update` with a session open prints the open
-round again (no fetch, nothing changed) and writes its missing copies. Before every step:
+round again (no fetch, nothing changed) and writes its missing copies. `brd update` knows whether one is open from the
+`rev-parse` of the directories at the entry of the command, which lists the session refs too
+(`--symbolic-full-name --glob=refs/branch-deck/resolve/*`, `revs::repository_dirs_listing`): without the ref of its
+worktree no process reads a session; with it one `cat-file --batch` of HEAD, the ref and its `state.json`, which a
+session that closed since answers none. A session that opens after the listing is the race of a read right before the
+update, as it was: its start writes the session ref by a create (CAS), so a second start fails and changes nothing.
+Before every step:
 
 - the git dir of the worktree must be the one in `state.json`; otherwise the session is `session_stale`, with
   `brd update --abort --worktree <id>` as the way out. In another worktree, `--continue` finds no session of its own

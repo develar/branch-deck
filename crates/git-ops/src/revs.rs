@@ -149,16 +149,73 @@ pub fn repository_dirs(git_executor: &GitCommandExecutor, directory: &str) -> Re
   if let Some(dirs) = known_dirs(git_executor, directory) {
     return Ok(Some(dirs.clone()));
   }
-  let (output, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--show-toplevel", "--path-format=absolute", "--git-dir", "--git-common-dir"], directory)?;
+  Ok(read_dirs(git_executor, directory, &[])?.map(|(dirs, _)| dirs))
+}
+
+/// The full names of the refs that matched a glob when the entry of an operation read its directories
+/// (`repository_dirs_listing`): `(path, glob, names)`. A snapshot of the entry, as the directories are: a step of the
+/// same command reads it in place of a process of its own, and a ref the command itself writes later is never asked so
+#[derive(Clone, Default)]
+struct ListedRefs(Vec<(String, String, Vec<String>)>);
+
+/// `git_executor` that knows the refs of `repo_path` that matched `glob` at the entry of its operation (`listed_refs`)
+#[must_use]
+pub fn with_listed_refs(git_executor: &GitCommandExecutor, repo_path: &str, glob: &str, names: Vec<String>) -> GitCommandExecutor {
+  let mut listed = git_executor.fact::<ListedRefs>().cloned().unwrap_or_default();
+  listed.0.retain(|(path, known, _)| !(path == repo_path && known == glob));
+  listed.0.push((repo_path.to_string(), glob.to_string(), names));
+  git_executor.with_fact(listed)
+}
+
+/// The refs of `repo_path` that matched `glob` at the entry of its operation (`with_listed_refs`); `None` when it did
+/// not list them
+pub fn listed_refs<'a>(git_executor: &'a GitCommandExecutor, repo_path: &str, glob: &str) -> Option<&'a [String]> {
+  git_executor
+    .fact::<ListedRefs>()
+    .and_then(|listed| listed.0.iter().find(|(path, known, _)| path == repo_path && known == glob))
+    .map(|(_, _, names)| names.as_slice())
+}
+
+/// `repository_dirs` with the full names of the refs that match `glob` (`refs/<…>/*`), from the same `rev-parse`
+/// (`--symbolic-full-name --glob`): a fact of the refs that the entry of an operation needs beside its directories, at
+/// no process of its own; `None` outside a working tree
+pub fn repository_dirs_listing(git_executor: &GitCommandExecutor, directory: &str, glob: &str) -> Result<Option<(RepositoryDirs, Vec<String>)>> {
+  read_dirs(git_executor, directory, &["--symbolic-full-name", &format!("--glob={glob}")])
+}
+
+/// `with_dirs_of` that also knows the refs of `repo_path` that match `glob`: those the entry of the operation listed
+/// (`listed_refs`), else, with the directories unknown, those of the one `rev-parse` of them (`repository_dirs_listing`).
+/// `None` for the refs when the directories were known without the refs, and outside a working tree
+pub fn with_dirs_and_refs_of(git_executor: &GitCommandExecutor, repo_path: &str, glob: &str) -> Result<(GitCommandExecutor, Option<Vec<String>>)> {
+  if known_dirs(git_executor, repo_path).is_some() {
+    let names = listed_refs(git_executor, repo_path, glob).map(<[String]>::to_vec);
+    return Ok((git_executor.clone(), names));
+  }
+  Ok(match repository_dirs_listing(git_executor, repo_path, glob)? {
+    Some((dirs, names)) => {
+      let git_executor = with_repository_dirs(git_executor, repo_path, dirs);
+      (with_listed_refs(&git_executor, repo_path, glob, names.clone()), Some(names))
+    }
+    None => (git_executor.clone(), None),
+  })
+}
+
+/// One `rev-parse` of the directories of `directory` with `extra` after them, whose lines follow those of the
+/// directories; `None` outside a working tree
+fn read_dirs(git_executor: &GitCommandExecutor, directory: &str, extra: &[&str]) -> Result<Option<(RepositoryDirs, Vec<String>)>> {
+  let mut args = vec!["rev-parse", "--show-toplevel", "--path-format=absolute", "--git-dir", "--git-common-dir"];
+  args.extend_from_slice(extra);
+  let (output, exit_code) = git_executor.execute_command_with_status(&args, directory)?;
   let mut lines = output.lines().map(str::trim);
   let (0, Some(top_level), Some(git_dir), Some(git_common_dir)) = (exit_code, lines.next().filter(|line| !line.is_empty()), lines.next(), lines.next()) else {
     return Ok(None);
   };
-  Ok(Some(RepositoryDirs {
+  let dirs = RepositoryDirs {
     top_level: top_level.to_string(),
     git_dir: git_dir.to_string(),
     git_common_dir: git_common_dir.to_string(),
-  }))
+  };
+  Ok(Some((dirs, lines.filter(|line| !line.is_empty()).map(str::to_string).collect())))
 }
 
 /// The branch HEAD is on, by its name under `refs/heads/` (never git's `heads/<name>` beside a tag of the same name),

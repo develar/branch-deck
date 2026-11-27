@@ -14,12 +14,12 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::landed_pairing::{LandedCandidate, LandedDrop, LandedReads, PathSets};
 use git_ops::lfs::prefetch_lfs_objects;
-use git_ops::revs::{Worktree, current_worktree, is_object_id, known_dirs, ref_exists, with_dirs_of};
+use git_ops::revs::{Worktree, current_worktree, is_object_id, known_dirs, ref_exists, with_dirs_and_refs_of, with_dirs_of};
 use git_ops::update_branch::{
   GuardRefusal, LandedLookup, UndoCheck, UpdatePlan, UpstreamRef, apply_update, apply_update_undo, check_update_before_lock_with_signing, check_update_guards_on,
   check_update_undo, finish_pending_update, pending_update, recheck_update,
 };
-use git_ops::update_resolve::{LostBindingFinding, PreparedStart, prepare_session_start};
+use git_ops::update_resolve::{LostBindingFinding, PreparedStart, SESSION_REF_GLOB, prepare_session_start, session_ref};
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::repository_lock::{CHECKS_WITHOUT_THE_LOCK, LockWait, lock_checked_undo, lock_for_files};
@@ -179,9 +179,15 @@ enum Resolve<'a> {
 /// round is shown again, and its missing copies written
 #[instrument(skip(git_executor))]
 pub fn update_and_resolve(git_executor: &GitCommandExecutor, repo_path: &str, options: UpdateOptions, dir: Option<&Path>) -> Result<BdUpdate> {
-  let git_executor = &with_dirs_of(git_executor, repo_path)?;
+  // the `rev-parse` of the directories lists the session refs too, at the entry of the command (`brd`'s `RepoContext`)
+  // or here: without the one of this worktree there is no session to read (no `cat-file`); with it the read is the
+  // session's own, which a session that closed meanwhile answers none. One that opened since the listing is the race of
+  // a read right before the update: its start creates the session ref (CAS), so a second start fails
+  let (git_executor, session_refs) = with_dirs_and_refs_of(git_executor, repo_path, SESSION_REF_GLOB)?;
+  let git_executor = &git_executor;
   let worktree = current_worktree(git_executor, repo_path)?;
-  if let Some(session) = own_session(git_executor, repo_path, &worktree)? {
+  let listed = session_refs.is_none_or(|refs| refs.contains(&session_ref(&worktree.id)));
+  if listed && let Some(session) = own_session(git_executor, repo_path, &worktree)? {
     if dir.is_some() {
       bail!("A resolve session is open already; --dir applies when a session starts");
     }
