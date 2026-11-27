@@ -15,7 +15,7 @@
 //! - one `diff-tree -p -U0` of them all, then the search in memory: the smallest sets first, at most
 //!   `MAX_SEARCHED_COMMITS` commits; two sets of the same size make no candidate
 
-use crate::landed_pairing::{CandidateBy, ChangedLines, LandedCandidate, LandedPairing, LandedReads, NetLines, PathSets, net_of, read_changed_lines, same_net};
+use crate::landed_pairing::{CandidateBy, ChangedLines, KeyedCommit, LandedCandidate, LandedPairing, LandedReads, NetLines, PathSets, net_of, read_changed_lines, same_net};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -47,12 +47,10 @@ pub(crate) fn with_candidates_by_changed_lines(
 ) -> Result<LandedPairing> {
   let mut taken: HashSet<&str> = pairing.drops.iter().flat_map(|drop| [drop.commit.as_str(), drop.upstream.as_str()]).collect();
   taken.extend(pairing.candidates.iter().flat_map(|candidate| candidate.unit().chain([candidate.upstream.as_str()])));
-  let email_of: HashMap<&str, &str> = reads
-    .local
-    .iter()
-    .map(|commit| (commit.id.as_str(), commit.author_email.as_str()))
-    .chain(reads.upstream.iter().map(|commit| (commit.upstream.id.as_str(), commit.key.email.as_str())))
-    .collect();
+  let pool = Pool::of(
+    reads,
+    reads.local.iter().map(|commit| commit.id.as_str()).filter(|commit| !taken.contains(commit)).collect(),
+  );
   let completed = pairing
     .candidates
     .iter()
@@ -60,84 +58,120 @@ pub(crate) fn with_candidates_by_changed_lines(
     .filter(|(_, candidate)| candidate.by == CandidateBy::Key)
     .map(|(index, candidate)| Target {
       upstream: candidate.upstream.as_str(),
-      email: email_of.get(candidate.commit.as_str()).copied().unwrap_or_default(),
+      email: pool.email_of.get(candidate.commit.as_str()).copied().unwrap_or_default(),
       forced: candidate.unit().collect(),
       candidate: Some(index),
     });
   // newest first as the upstream is read: the oldest upstream commit first
-  let untaken = reads
-    .upstream
-    .iter()
-    .rev()
-    .filter(|commit| !taken.contains(commit.upstream.id.as_str()))
-    .map(|commit| Target {
+  let untaken = reads.upstream.iter().rev().filter(|commit| !taken.contains(commit.upstream.id.as_str())).map(Target::of);
+  let targets: Vec<Target<'_>> = completed.chain(untaken).collect();
+  for (replaced, candidate) in sets_of_targets(git_executor, repo_path, targets, &pool, paths)? {
+    match replaced {
+      Some(index) => pairing.candidates[index] = candidate,
+      None => pairing.candidates.push(candidate),
+    }
+  }
+  pairing.candidates.sort_by_key(|candidate| pool.position.get(candidate.commit.as_str()).copied());
+  Ok(pairing)
+}
+
+impl<'a> Target<'a> {
+  /// The upstream commit `commit` as a target of its own
+  const fn of(commit: &'a KeyedCommit) -> Self {
+    Self {
       upstream: commit.upstream.id.as_str(),
       email: commit.key.email.as_str(),
       forced: Vec::new(),
       candidate: None,
-    });
+    }
+  }
+}
 
-  let free: Vec<&str> = reads.local.iter().map(|commit| commit.id.as_str()).filter(|commit| !taken.contains(commit)).collect();
-  let eligible = |target: &Target<'_>, free: &[&'_ str]| -> Vec<String> {
+/// The local commits the sets of a search may hold, with what the search tells them by
+struct Pool<'a> {
+  /// The commits a set may hold, in the local order
+  free: Vec<&'a str>,
+  /// The author email of each local and upstream commit
+  email_of: HashMap<&'a str, &'a str>,
+  /// The index of each local commit in the local order
+  position: HashMap<&'a str, usize>,
+}
+
+impl<'a> Pool<'a> {
+  fn of(reads: &'a LandedReads, free: Vec<&'a str>) -> Self {
+    Self {
+      free,
+      email_of: reads
+        .local
+        .iter()
+        .map(|commit| (commit.id.as_str(), commit.author_email.as_str()))
+        .chain(reads.upstream.iter().map(|commit| (commit.upstream.id.as_str(), commit.key.email.as_str())))
+        .collect(),
+      position: reads.local.iter().enumerate().map(|(index, commit)| (commit.id.as_str(), index)).collect(),
+    }
+  }
+}
+
+/// The one smallest set of `pool` of each of `targets`, in their order, as a candidate by changed lines with the position
+/// of the candidate by identity it completes: a commit of the set of an earlier target is in no later one. A set holds
+/// only commits of the author of its target that meet its paths, and a target whose paths they cannot cover has none.
+/// One `diff-tree --stdin -p -U0` of the targets and their commits, none without such a target
+fn sets_of_targets<'a>(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  targets: Vec<Target<'a>>,
+  pool: &Pool<'a>,
+  paths: &PathSets,
+) -> Result<Vec<(Option<usize>, LandedCandidate)>> {
+  let eligible = |target: &Target<'_>| -> Vec<&'a str> {
     let Some(wanted) = paths.get(target.upstream) else {
       return Vec::new();
     };
-    free
+    pool
+      .free
       .iter()
-      .filter(|commit| email_of.get(**commit) == Some(&target.email) && paths.get(**commit).is_some_and(|set| !set.is_disjoint(wanted)))
-      .map(|commit| (*commit).to_string())
+      .copied()
+      .filter(|commit| pool.email_of.get(*commit) == Some(&target.email) && paths.get(*commit).is_some_and(|set| !set.is_disjoint(wanted)))
       .collect()
   };
   // a target whose paths its commits cannot cover is never equal: no diff of it
-  let mut read: Vec<&str> = Vec::new();
-  let mut seen: HashSet<&str> = HashSet::new();
-  let targets: Vec<(Target<'_>, Vec<String>)> = completed
-    .chain(untaken)
+  let targets: Vec<(Target<'a>, Vec<&'a str>)> = targets
+    .into_iter()
     .filter_map(|target| {
-      let commits = eligible(&target, &free);
+      let commits = eligible(&target);
       let wanted = paths.get(target.upstream)?;
-      let covered: BTreeSet<&Vec<u8>> = commits
-        .iter()
-        .map(String::as_str)
-        .chain(target.forced.iter().copied())
-        .filter_map(|commit| paths.get(commit))
-        .flatten()
-        .collect();
+      let covered: BTreeSet<&Vec<u8>> = commits.iter().chain(&target.forced).filter_map(|commit| paths.get(*commit)).flatten().collect();
       (!commits.is_empty() && wanted.iter().all(|path| covered.contains(path))).then_some((target, commits))
     })
     .collect();
+  if targets.is_empty() {
+    return Ok(Vec::new());
+  }
+  let mut read: Vec<&str> = Vec::new();
+  let mut seen: HashSet<&str> = HashSet::new();
   for (target, commits) in &targets {
-    for commit in target.forced.iter().copied().chain([target.upstream]) {
+    for commit in target.forced.iter().copied().chain([target.upstream]).chain(commits.iter().copied()) {
       if seen.insert(commit) {
         read.push(commit);
       }
     }
-    for commit in commits {
-      if seen.insert(commit.as_str()) {
-        read.push(commit.as_str());
-      }
-    }
-  }
-  if targets.is_empty() {
-    return Ok(pairing);
   }
   let changes = read_changed_lines(git_executor, repo_path, &read)?;
-  let position: HashMap<&str, usize> = reads.local.iter().enumerate().map(|(index, commit)| (commit.id.as_str(), index)).collect();
 
   let mut found: Vec<(Option<usize>, LandedCandidate)> = Vec::new();
-  let mut used: HashSet<String> = HashSet::new();
+  let mut used: HashSet<&str> = HashSet::new();
   for (target, commits) in &targets {
     let wanted = net_of(&changes, &[target.upstream]);
     if target.candidate.is_some() && same_net(&net_of(&changes, &target.forced), &wanted) {
       continue;
     }
-    let commits: Vec<&str> = commits.iter().map(String::as_str).filter(|commit| !used.contains(*commit)).collect();
-    let Some(set) = smallest_set(&changes, (&wanted, target.upstream), (&target.forced, &commits), paths, &position) else {
+    let commits: Vec<&str> = commits.iter().copied().filter(|commit| !used.contains(commit)).collect();
+    let Some(set) = smallest_set(&changes, (&wanted, target.upstream), (&target.forced, &commits), paths, &pool.position) else {
       continue;
     };
     let mut unit: Vec<&str> = target.forced.iter().copied().chain(set.iter().copied()).collect();
-    unit.sort_by_key(|commit| position.get(commit).copied());
-    used.extend(set.iter().map(|commit| (*commit).to_string()));
+    unit.sort_by_key(|commit| pool.position.get(commit).copied());
+    used.extend(set);
     found.push((
       target.candidate,
       LandedCandidate {
@@ -149,14 +183,7 @@ pub(crate) fn with_candidates_by_changed_lines(
     ));
   }
   debug!(found = found.len(), targets = targets.len(), "candidates by changed lines");
-  for (replaced, candidate) in found {
-    match replaced {
-      Some(index) => pairing.candidates[index] = candidate,
-      None => pairing.candidates.push(candidate),
-    }
-  }
-  pairing.candidates.sort_by_key(|candidate| position.get(candidate.commit.as_str()).copied());
-  Ok(pairing)
+  Ok(found)
 }
 
 /// The one smallest set of `commits` that, with `forced`, sums to `wanted` (the net lines of `upstream`) in the local
