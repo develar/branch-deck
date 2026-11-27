@@ -116,7 +116,7 @@ these rules:
   `--allow-dangling`, `--allow-live-session`.
   Its help says it runs only once the user agreed, and the refusal's `message` names it with its condition (never a
   `next_steps` entry).
-- **An act is its own verb**: `--force` of a push, `--cancel-running`, `--overwrite-edited`. One flag has one sense:
+- **An act is its own verb**: `--force` of a push, `--cancel-running`, `--keep-running`, `--overwrite-edited`. One flag has one sense:
   `brd update --force` was two acts and is two flags now.
 - **A rename keeps the old name** as an alias (a hidden flag when the old name had two senses), with a row in
   `RENAMED`, whose test checks it against clap; a run with it prints `brd: <old> of brd <command> is now <new>` on
@@ -188,11 +188,12 @@ approved it. One without it only reads (`brd robot`, `brd sync`, `brd safe-push 
 `next_steps`, not `next`: the `next` of `brd workspace`, `brd update` and `brd pick` runs at once, a step of an error
 does not. A way to start anyway (`--allow-*`, `--without-approvals`), `--min-free` and a change of the config are
 never a step: the message names each with its condition ("only when the user says it is a false alarm", "never raise
-`branchdeck.pushSizeLimit` yourself"), and so it names the condition of `--force`, `--cancel-running`,
+`branchdeck.pushSizeLimit` yourself"), and so it names the condition of `--force`, `--cancel-running`, `--keep-running`,
 `--restart-running` and `--confirm-preserved` ("once the user approved"). The steps, by code: `lease_rejected` the
 leased push that replaces the remote branch (`--with-children --force` for a stack branch); `push_refused` the push
 that replaces a branch behind its remote, `brd sync` for one not synced; `robot_running` `brd robot` of the robot, and
-the same command with `--cancel-running` (`safe-push`) or `--restart-running` (`push`) where it applies;
+the same command with `--cancel-running` or `--keep-running` (`safe-push`) or `--restart-running` (`push`) where it
+applies;
 `approvals_missing` the start with `--create-pull-request` when the branch has no pull request; `dangling_reference`
 the `fix.command` a trial build proved; `missing_declaration` and `generated_merged_by_words` the `brd restack` they
 name; `push_dismisses_approvals`
@@ -1916,7 +1917,7 @@ requests of the branches it pushes whose base is a virtual branch to the baselin
   what a push would retarget and GitHub is only asked. Without a GitHub repository of the branches or a token, GitHub
   is not asked.
 
-### `brd safe-push <branch> [--whole-stack] [--patronus-dry-run] [--profile P] [--dry-run] [--without-approvals] [--create-pull-request [--reviewer LOGIN]… [--no-assign]] [--cancel-running] [--force] [--allow-dangling] [--allow-missing] [--allow-unknown-rules] [--allow-unknown-review] [--allow-generated-merged-by-words]`
+### `brd safe-push <branch> [--whole-stack] [--patronus-dry-run] [--profile P] [--dry-run] [--without-approvals] [--create-pull-request [--reviewer LOGIN]… [--no-assign]] [--cancel-running | --keep-running] [--force] [--allow-dangling] [--allow-missing] [--allow-unknown-rules] [--allow-unknown-review] [--allow-generated-merged-by-words]`
 
 Starts a Patronus robot on the virtual branch, as the Safe Push of the app ([Patronus](../../openspec/specs/branch/patronus/spec.md)):
 a Safe Push (Patronus rebases the branch onto the target, runs the checks and pushes it into the target when they
@@ -1964,6 +1965,7 @@ nothing, a Dry Run and `--dry-run` included: `parked` (exit 4) right after the s
   `robot_running` both ways: a Safe Push of a branch of the stack lands a part of it ("A Safe Push of login is
   running: wait until it merges"), and the Safe Push of the whole stack lands every branch of it, so a branch's start
   waits for it ("A Safe Push of the whole auth stack is running: it lands 1 commit of login with it (1a2b3c4d)").
+  Either refusal offers the same start with `--keep-running`, to run only once the user approved.
 
   ```json
   {"schema":2,…,"branch":"login","mode":"safe_push","target":"master","lands":["auth","login","session"],
@@ -2081,6 +2083,13 @@ nothing, a Dry Run and `--dry-run` included: `parked` (exit 4) right after the s
   auth is running: wait until it merges"). A running Safe Push of an older commit fails once the push changes its
   branch: `--cancel-running` cancels it first (`canceled`). A Dry Run replaces no Safe Push: its push into the branch
   of a running Safe Push is refused, `--cancel-running` or not; one without a push starts beside it.
+  `--keep-running` starts a Safe Push beside a running Safe Push of another subject that lands the same commits (the
+  whole stack, a branch built on it, a branch it is built on) and cancels nothing: both robots run, and the one that
+  merges second rebases onto the first or fails. The message names it and its `next_steps` has the start with it
+  (`needs_approval`). It pushes the branches that robot lands with more, as a push of them fails no robot, and never
+  the branch a robot runs on. A robot on the last commit still refuses. It is no flag of a Dry Run or of
+  `--create-pull-request`, and `--cancel-running` is the other way. `brd robot <branch>` and `brd robot <root>
+  --whole-stack` then name each robot for its own subject.
 - `landed` (exit 4, the first of `refusals` with `--dry-run`): a merged Safe Push landed all of the branch ("Nothing was
   pushed or started: login merged into master with its Safe Push (<robot>): nothing of it is left to land"), or, with
   `--whole-stack`, every branch of the stack ("every branch of the whole auth stack landed in master with the Safe

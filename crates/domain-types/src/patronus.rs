@@ -390,7 +390,8 @@ pub struct PatronusStartOptions {
 
 /// What the user lets a start do although it refuses or asks first (the `allow` of the contract's `Land`,
 /// `domain_policy::land::decide`), each by the user: the flags of `brd safe-push` (`--allow-dangling`, `--allow-missing`,
-/// `--force`, `--allow-unknown-rules`, `--allow-unknown-review`, `--cancel-running`, `--allow-generated-merged-by-words`),
+/// `--force`, `--allow-unknown-rules`, `--allow-unknown-review`, `--cancel-running`, `--keep-running`,
+/// `--allow-generated-merged-by-words`),
 /// Start Anyway of the app for the refusals of `trial_check::landing_gate`
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -418,6 +419,10 @@ pub struct LandingAllowances {
   /// Cancel the running Safe Push of an older commit the start replaces
   #[serde(default)]
   pub cancel_running: bool,
+  /// Start a Safe Push beside a running Safe Push of another subject that lands the same commits (`Reason::Descendant`,
+  /// `Reason::Ancestor`), and keep that one running: the robot that merges second rebases onto the first or fails
+  #[serde(default)]
+  pub keep_running: bool,
   /// Push into the target although the checks of CI did not pass on the commit, or changes are requested on its pull
   /// request (`Confirmation::Unchecked`, `Confirmation::ChangesRequested`)
   #[serde(default)]

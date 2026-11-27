@@ -10,7 +10,10 @@
 //!   newer baseline (`on_last_commit`): Patronus would refuse it, the robot tests and lands the subject as it is;
 //! - for a Safe Push, while a running robot of a branch built on it, or of its whole stack, lands the branch with more
 //!   (`Descendant`), or one lands a part of what it would land (`Ancestor`: an ancestor, a side branch built on one, for
-//!   the whole stack a branch of it): two robots would land the same commits;
+//!   the whole stack a branch of it): two robots would land the same commits. `decide` lifts these two once the user
+//!   keeps that robot running (`LandingAllowances::keep_running`, `kept_running`): both run, and the one that merges
+//!   second rebases onto the first or fails in Patronus; a span hold then holds no push of the start (only a push into
+//!   the branch a robot runs on fails it);
 //! - for a Dry Run, while a running Safe Push of a branch built on it lands it and the start pushes (D15): the push
 //!   would fail that Safe Push at the end, as it fails any push into what a running Safe Push lands.
 //!
@@ -684,14 +687,17 @@ fn branch_part<'a>(facts: &LandFacts<'a>, land: &Land, branch: &BranchSubject<'a
   // the push takes the branch and the ancestors with work up to the nearest one a running Safe Push holds (one the start
   // replaces holds nothing: a Dry Run replaces none), past one that landed (`push::start_push`)
   let replaces = branch.replaces.filter(|_| safe_push);
+  // a robot kept running beside the start that lands a branch with more holds no push of it: the start lands what it
+  // pushes, and only a push into the branch a robot runs on fails that robot
+  let hold_of = |hold: Option<&'a HoldView>| hold.filter(|hold| !(keeps_running(land) && hold.kind == HoldKind::Span));
   let (own, ancestors) = branch.chain.split_last().map_or((None, &[][..]), |(own, ancestors)| (Some(own), ancestors));
   let started = start_push(
     name,
     own.and_then(|own| own.remote),
-    kept(false, false, branch.start.hold, replaces, false) == Some(Kept::Held),
+    kept(false, false, hold_of(branch.start.hold), replaces, false) == Some(Kept::Held),
     ancestors.iter().rev().map(|step| StartAncestor {
       name: step.name,
-      kept: kept(false, step.landed_whole || step.in_baseline, step.hold, replaces, step.not_built),
+      kept: kept(false, step.landed_whole || step.in_baseline, hold_of(step.hold), replaces, step.not_built),
       remote: step.remote,
     }),
   );
@@ -705,6 +711,7 @@ fn branch_part<'a>(facts: &LandFacts<'a>, land: &Land, branch: &BranchSubject<'a
   let pushes = !push.is_empty();
   decision.blockers.extend(branch.landed.clone());
   let robot = start_refusal(&Start::Branch(BranchStart { pushes, ..branch.start }), land.mode, facts.robots);
+  let robot = robot.filter(|reason| !kept_running(reason, land));
   let robot_refuses = robot.is_some();
   decision.blockers.extend(robot);
   let forced = drops(push.iter().map(|step| (step.name, step.remote)), land, decision);
@@ -713,7 +720,7 @@ fn branch_part<'a>(facts: &LandFacts<'a>, land: &Land, branch: &BranchSubject<'a
   if !robot_refuses
     && branch.landed.is_none()
     && pushes
-    && let Some(hold) = branch.start.hold.filter(|_| !safe_push || branch.replaces.is_none())
+    && let Some(hold) = hold_of(branch.start.hold).filter(|_| !safe_push || branch.replaces.is_none())
     && let Some(robot) = facts.robots.get(&hold.by.robot_id)
   {
     decision.blockers.push(held(name, hold, robot));
@@ -761,6 +768,7 @@ fn stack_part<'a>(facts: &LandFacts<'a>, land: &Land, stack: &StackSubject<'a>, 
   let safe_push = land.mode != PatronusPushMode::DryRun;
   decision.blockers.extend(stack.landed.clone());
   let robot = start_refusal(&Start::WholeStack(stack.start), land.mode, facts.robots);
+  let robot = robot.filter(|reason| !kept_running(reason, land));
   // a stack branch that is no build of its commits is said first: nothing of it is reviewed or pushed as it should be
   let not_built = matches!(robot, Some(Reason::StackNotBuilt { .. }));
   let (not_built_refusal, robot) = if not_built { (robot, None) } else { (None, robot) };
@@ -817,6 +825,19 @@ fn stack_part<'a>(facts: &LandFacts<'a>, land: &Land, stack: &StackSubject<'a>, 
     lands_more: more_than_row(stack.members.len()),
     whole_stack_pull_request: None,
   }
+}
+
+/// The user keeps a running robot that lands the same commits beside a Safe Push start (`LandingAllowances::keep_running`);
+/// a Dry Run lands nothing beside it
+fn keeps_running(land: &Land) -> bool {
+  land.allow.keep_running && land.mode != PatronusPushMode::DryRun
+}
+
+/// A robot of another subject that lands the subject with more (`Descendant`) or a part of it (`Ancestor`) refuses no
+/// start that keeps it running (`keeps_running`); one on the last commit, a block and a push into the branch a robot
+/// runs on still refuse
+fn kept_running(reason: &Reason, land: &Land) -> bool {
+  keeps_running(land) && matches!(reason, Reason::Descendant { .. } | Reason::Ancestor { .. })
 }
 
 /// The remote branches of `pushed` whose push drops commits the branch lacks (someone's work): each refuses the start

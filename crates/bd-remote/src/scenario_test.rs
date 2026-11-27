@@ -597,6 +597,7 @@ impl Given {
       allow_unknown_rules: self.has(Flag::AllowUnknownRules),
       allow_unknown_review: false,
       cancel_running: self.has(Flag::CancelRunning),
+      keep_running: false,
       allow_without_checks: self.has(Flag::WithoutChecks),
       bypass_rules: self.has(Flag::BypassRules),
       allow_generated_merged_by_words: self.has(Flag::AllowGeneratedMergedByWords),

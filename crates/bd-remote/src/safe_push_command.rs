@@ -140,6 +140,12 @@ pub struct SafePushArgs {
   /// the Safe Push replaces it
   #[arg(long)]
   pub cancel_running: bool,
+  /// Start beside a running Safe Push of another subject that lands the same commits (`robot_running`: the whole stack,
+  /// a branch built on this one, a branch it is built on), and keep that one running; only once the user agreed. Both
+  /// robots run: the one that merges second rebases onto the first or fails. A robot on the last commit still refuses,
+  /// and the push goes into no branch a robot runs on
+  #[arg(long, conflicts_with_all = ["cancel_running", "patronus_dry_run", "create_pull_request"])]
+  pub keep_running: bool,
   /// Obsolete and without effect: the Safe Push of a stacked branch always lands the branches it is built on with it.
   /// Accepted so that an older command line still runs
   #[arg(long, hide = true)]
@@ -1374,6 +1380,7 @@ fn plan(
       allow_unknown_rules: args.allow_unknown_rules,
       allow_unknown_review: args.allow_unknown_review,
       cancel_running: args.cancel_running,
+      keep_running: args.keep_running,
       allow_generated_merged_by_words: args.allow_generated_merged_by_words,
       ..LandingAllowances::default()
     },
@@ -1928,9 +1935,25 @@ impl Told<'_> {
       Reason::LandingRefused { refusal } => Refusal::new(ErrorCode::MissingDeclaration, refusal.reason()),
       Reason::Blocked { .. } | Reason::LastCommit { .. } | Reason::Descendant { .. } | Reason::Ancestor { .. } | Reason::Held { .. } | Reason::StackHeld { .. } => {
         let robot = robot_command(context, &refusing_subject(reason, &self.subject()));
-        Refusal::new(ErrorCode::RobotRunning, start_refusal_text(reason, what, self.session.robots())).with_next_step(robot, false)
+        let refusal = Refusal::new(ErrorCode::RobotRunning, start_refusal_text(reason, what, self.session.robots())).with_next_step(robot, false);
+        self.with_keep_running(reason, refusal)
       }
     }
+  }
+
+  /// A running Safe Push of another subject that lands the same commits (`Descendant`, `Ancestor`) refuses a Safe Push
+  /// start only until the user keeps it running: the message says so, and the start again with `--keep-running` is the
+  /// user's to approve. A Dry Run or a pull request it opens starts no robot beside it
+  fn with_keep_running(&self, reason: &Reason, mut refusal: Refusal) -> Refusal {
+    let args = self.args;
+    if !matches!(reason, Reason::Descendant { .. } | Reason::Ancestor { .. }) || args.patronus_dry_run || args.create_pull_request {
+      return refusal;
+    }
+    refusal
+      .message
+      .push_str("; once the user approved, --keep-running starts beside it and keeps it running: the robot that merges second rebases onto the first or fails");
+    let again = start_again(self.context, args, &self.landing.name, self.stack().is_some());
+    refusal.with_next_step(format!("{again} --keep-running"), true)
   }
 
   /// The push of `branch` drops `behind` commits of its remote branch the baseline lacks: the push that replaces them,

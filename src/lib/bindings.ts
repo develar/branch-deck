@@ -4900,7 +4900,8 @@ export type LandedSeenParams = {
 /**
  *  What the user lets a start do although it refuses or asks first (the `allow` of the contract's `Land`,
  *  `domain_policy::land::decide`), each by the user: the flags of `brd safe-push` (`--allow-dangling`, `--allow-missing`,
- *  `--force`, `--allow-unknown-rules`, `--allow-unknown-review`, `--cancel-running`, `--allow-generated-merged-by-words`),
+ *  `--force`, `--allow-unknown-rules`, `--allow-unknown-review`, `--cancel-running`, `--keep-running`,
+ *  `--allow-generated-merged-by-words`),
  *  Start Anyway of the app for the refusals of `trial_check::landing_gate`
  */
 export type LandingAllowances = {
@@ -4918,6 +4919,11 @@ export type LandingAllowances = {
 	allowUnknownReview?: boolean,
 	/**  Cancel the running Safe Push of an older commit the start replaces */
 	cancelRunning?: boolean,
+	/**
+	 *  Start a Safe Push beside a running Safe Push of another subject that lands the same commits (`Reason::Descendant`,
+	 *  `Reason::Ancestor`), and keep that one running: the robot that merges second rebases onto the first or fails
+	 */
+	keepRunning?: boolean,
 	/**
 	 *  Push into the target although the checks of CI did not pass on the commit, or changes are requested on its pull
 	 *  request (`Confirmation::Unchecked`, `Confirmation::ChangesRequested`)

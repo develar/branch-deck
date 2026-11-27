@@ -292,6 +292,8 @@ struct World {
   /// built on it, other than the one a start replaces
   chain: Vec<(&'static str, Option<RemoteBranch<'static>>, bool, bool)>,
   hold: Option<HoldView>,
+  /// The first running robot that lands login with more
+  span: Option<SpanView>,
   replaces: Option<&'static str>,
   parked: Option<Parked>,
   not_built: Option<BlockReason>,
@@ -392,6 +394,7 @@ fn world() -> World {
     landing_pending: false,
     chain: vec![("auth", Some(UNPUSHED), false, false), ("login", Some(UNPUSHED), false, false)],
     hold: None,
+    span: None,
     replaces: None,
     parked: None,
     not_built: None,
@@ -434,6 +437,7 @@ impl World {
         start: BranchStart {
           not_built: self.not_built,
           hold: self.hold.as_ref(),
+          span: self.span.as_ref(),
           ..start()
         },
         parked: self.parked.clone(),
@@ -770,6 +774,41 @@ fn a_safe_push_replaces_its_own_older_robot_a_dry_run_is_refused_its_push_and_th
     ..world()
   };
   assert_eq!(above_held.decide(&land(DRY_RUN)).effects.len(), 1, "nothing to push: a StartRobot only");
+}
+
+/// A Safe Push the user starts beside a running robot that lands login with more keeps that robot running
+/// (`keep_running`): it refuses nothing, nothing is canceled, and the push takes the branches that robot holds by its
+/// span, as a push of them fails no robot. Without the allowance it refuses; a Dry Run keeps no robot running, and its
+/// push into what that robot holds is refused (D15)
+#[test]
+fn a_safe_push_kept_beside_a_robot_that_lands_it_with_more_starts_and_pushes_what_that_robot_holds_by_its_span() {
+  let by = robot_of("oauth", "oauth-run");
+  let beside = World {
+    robots: vec![running("oauth-run", "oauth")],
+    span: Some(SpanView {
+      by: by.clone(),
+      carried: None,
+      started_by: None,
+    }),
+    hold: Some(HoldView {
+      kind: HoldKind::Span,
+      by,
+      carried: None,
+      started_by: None,
+    }),
+    chain: vec![("auth", Some(UNPUSHED), false, true), ("login", Some(UNPUSHED), false, false)],
+    ..world()
+  };
+  assert_eq!(codes(&beside.decide(&land(SAFE_PUSH))), ["descendant"]);
+  let keeps = |mode| {
+    let mut land = land(mode);
+    land.allow.keep_running = true;
+    land
+  };
+  // the push and the start of a start with nothing in its way
+  let decision = beside.decide(&keeps(SAFE_PUSH));
+  assert_eq!((codes(&decision), decision.effects), (Vec::<String>::new(), world().decide(&land(SAFE_PUSH)).effects));
+  assert_eq!(codes(&beside.decide(&keeps(DRY_RUN))), ["held"]);
 }
 
 /// The landing gate refuses what would not build unless allowed, kind by kind; a conflict with the newest target refuses

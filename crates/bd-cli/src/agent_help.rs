@@ -72,8 +72,8 @@ Refusals that wait for the user (exit 4); the `--help` of the command has the re
 - `push_too_large`: show `paths`; never raise `branchdeck.pushSizeLimit` yourself.
 - `lease_rejected`: show `error.branches[].remote.dropped_commits`; `brd push --force --expect-remote <remote.head>` for
   that one branch only once the user approved.
-- `robot_running`: wait until the robot merges; `brd push --restart-running` or `brd safe-push --cancel-running` only once
-  the user approved.
+- `robot_running`: wait until it merges; `brd push --restart-running`, `brd safe-push --cancel-running`/`--keep-running`
+  once the user approved.
 - `approvals_missing`: show `error.review`; `--create-pull-request` once the user approved; `--without-approvals` only
   when the user says so: Patronus fails it.
 - `dangling_reference`, `missing_declaration`: fix the plan (`brd check --help`), `lost_binding` its commit;
@@ -686,8 +686,10 @@ Refusals of `brd safe-push`, nothing pushed or started:
   again. --without-approvals starts anyway, only when the user says so: Patronus fails it. A merge profile known
   to skip the review starts without them (`review.skipped_by`: `profile`).
 - `robot_running` (exit 4): a robot runs on the last commit, lands the branch with a branch of its stack or with the
-  whole stack, or lands a branch it is built on; --cancel-running cancels a Safe Push of an older commit. A Dry Run
-  replaces no Safe Push: its push into a branch whose Safe Push runs is refused.
+  whole stack, or lands a branch it is built on; --cancel-running cancels a Safe Push of an older commit. Of a robot
+  of the whole stack, of a branch built on it or of a branch it is built on, --keep-running starts beside it and
+  keeps it running: the robot that merges second rebases onto the first or fails. A Dry Run replaces no Safe Push:
+  its push into a branch whose Safe Push runs is refused.
 - `review_unknown` (exit 4, also in `refusals`): Patronus couldn't answer the code-owner review (its pre-check
   failed): ask the user; --allow-unknown-review starts anyway, and the robot checks the approvals when it starts.
 - `dangling_reference` (exit 4, also in `refusals`): what the check of step 2 reports for the branch or a branch it

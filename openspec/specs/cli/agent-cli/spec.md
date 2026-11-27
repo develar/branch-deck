@@ -659,8 +659,9 @@ message names MUST name the repository as a step does (`brd -C <repo> …`, `Rep
 
 #### Scenario: A robot that runs
 - **WHEN** a start is `robot_running`
-- **THEN** the steps are `brd robot` of the robot and the `--cancel-running` or `--restart-running` of the same command
-  [@test] crates/bd-remote/src/safe_push_test.rs (`a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told`, `push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told`)
+- **THEN** the steps are `brd robot` of the robot and the `--cancel-running`, `--keep-running` or `--restart-running` of
+  the same command
+  [@test] crates/bd-remote/src/safe_push_test.rs (`a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told`, `push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told`, `a_safe_push_starts_beside_a_running_robot_of_the_whole_stack_only_when_told_to_keep_it_running`)
 
 #### Scenario: Missing approvals without a pull request
 - **WHEN** a start is `approvals_missing` and the branch has no pull request
@@ -4891,6 +4892,38 @@ with `robot_running` ("the start would run beside it") unless `--cancel-running`
 #### Scenario: A dry run or a pull request leaves it
 - **WHEN** a dry run or `--create-pull-request` runs
 - **THEN** the running Safe Push is left as it is
+
+### Requirement: `brd safe-push`: A Safe Push starts beside a running one of another subject when told
+
+A running Safe Push of another subject that lands the same commits (the whole stack, a branch built on the branch, a
+branch it is built on) MUST refuse a Safe Push start with `robot_running` unless `--keep-running`, which the refusal
+offers as a step that needs the approval. With it the start MUST cancel nothing and MUST push the branches that robot
+only lands, never the branch a robot runs on. A robot on the last commit MUST still refuse.
+
+#### Scenario: A branch beside the Safe Push of its whole stack
+- **GIVEN** a Safe Push of the whole stack runs
+- **WHEN** the Safe Push of a branch of it starts without `--keep-running`
+- **THEN** it refuses with `robot_running`, the steps `brd robot <root> --whole-stack` and the start with
+  `--keep-running`
+  [@test] crates/bd-remote/src/safe_push_test.rs (`a_safe_push_starts_beside_a_running_robot_of_the_whole_stack_only_when_told_to_keep_it_running`)
+
+#### Scenario: Told to keep it running
+- **WHEN** the Safe Push starts with `--keep-running`
+- **THEN** the robot starts from the branch, nothing is canceled, and the branches the robot of the whole stack lands
+  are pushed
+- **AND** `brd robot <branch>` names the new robot, `brd robot <root> --whole-stack` the robot of the whole stack
+  [@test] crates/bd-remote/src/safe_push_test.rs (`a_safe_push_starts_beside_a_running_robot_of_the_whole_stack_only_when_told_to_keep_it_running`)
+  [@test] crates/domain-policy/src/land_test.rs (`a_safe_push_kept_beside_a_robot_that_lands_it_with_more_starts_and_pushes_what_that_robot_holds_by_its_span`)
+
+#### Scenario: With --cancel-running or a Dry Run
+- **WHEN** `--keep-running` comes with `--cancel-running`, `--patronus-dry-run` or `--create-pull-request`
+- **THEN** it is `invalid_arguments`, exit 2
+  [@test] crates/bd-remote/src/safe_push_test.rs (`a_safe_push_starts_beside_a_running_robot_of_the_whole_stack_only_when_told_to_keep_it_running`)
+
+#### Scenario: A Dry Run keeps no robot running
+- **WHEN** a Dry Run with the allowance would push into what a running Safe Push lands
+- **THEN** it is refused as before (`held`)
+  [@test] crates/domain-policy/src/land_test.rs (`a_safe_push_kept_beside_a_robot_that_lands_it_with_more_starts_and_pushes_what_that_robot_holds_by_its_span`)
 
 ### Requirement: `brd safe-push`: A Dry Run replaces no Safe Push
 

@@ -420,6 +420,11 @@ beside the branches ([Whole Stack](../../openspec/specs/branch/whole-stack/spec.
   branch, not even by its revision. It lands every branch of the stack, so a branch's Safe Push and push wait for it;
   a robot of a branch lands a part of the stack, so the whole stack's Safe Push waits for it (the `landingMember` of
   the repository view, `repository_model::patronus_view`). A robot started elsewhere on a temporary ref is matched by its tip, as a branch's is.
+  `brd safe-push --keep-running` is the one way past the wait, once the user approved: a cheap piece lands beside a
+  long robot of the whole stack, or the reverse, and both robots run. The one that merges second rebases onto the
+  first or fails in Patronus. Their sources differ (the stack branch, the branch), so each stays the robot of its own
+  subject. The start cancels nothing and pushes no branch a robot runs on; a push of a branch the other robot only
+  lands fails no robot. The app keeps the wait.
 
 ### The whole stack in the app
 

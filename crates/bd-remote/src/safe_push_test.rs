@@ -1533,7 +1533,13 @@ fn the_whole_stack_lands_in_one_robot_from_its_stack_branch() {
   space.set_robots(vec![robot("piece", "RUNNING", "login", "0000")]);
   let (exit_code, output) = space.run(&["auth", "--whole-stack"]);
   assert_error(&output, exit_code, (4, "robot_running"));
-  assert_eq!(output["error"]["message"], json!("A Safe Push of login is running: wait until it merges"));
+  assert!(
+    output["error"]["message"]
+      .as_str()
+      .unwrap()
+      .starts_with("A Safe Push of login is running: wait until it merges; "),
+    "{output}"
+  );
   let (exit_code, output) = space.run(&["auth", "--whole-stack", "--patronus-dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   // on the remote as it is: nothing to push
@@ -1545,6 +1551,75 @@ fn the_whole_stack_lands_in_one_robot_from_its_stack_branch() {
     (space.last_start()["mode"].clone(), space.last_start()["sourceBranch"].clone()),
     (json!("DRY_RUN"), json!(format!("refs/heads/{STACK}")))
   );
+}
+
+/// A Safe Push of a branch beside a running robot of its whole stack, and of the whole stack beside a running robot of a
+/// branch of it, starts only with --keep-running, which the refusal names as a step the user approves: nothing is
+/// canceled, the push takes the branches the robot of the whole stack lands, and `brd robot` names each robot for its
+/// own subject. It is no flag of a Dry Run, and --cancel-running is the other way
+#[test_log::test]
+fn a_safe_push_starts_beside_a_running_robot_of_the_whole_stack_only_when_told_to_keep_it_running() {
+  let space = forking_stack();
+  let brd = bd_in(&space.repo);
+  let (exit_code, output) = space.run(&["auth", "--whole-stack"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let stack_tip = space.local_tip(STACK);
+  space.set_robots(Vec::new());
+  space.add_listed_robot("whole", stack_robot("whole", "RUNNING", &stack_tip));
+
+  let (exit_code, output) = space.run(&["login"]);
+  assert_error(&output, exit_code, (4, "robot_running"));
+  assert!(
+    output["error"]["message"]
+      .as_str()
+      .unwrap()
+      .ends_with("; once the user approved, --keep-running starts beside it and keeps it running: the robot that merges second rebases onto the first or fails"),
+    "{output}"
+  );
+  assert_eq!(
+    next_steps(&output["error"]),
+    [(format!("{brd} robot auth --whole-stack"), false), (format!("{brd} safe-push login --keep-running"), true)]
+  );
+  for flag in ["--cancel-running", "--patronus-dry-run", "--create-pull-request"] {
+    let args = ["login", "--keep-running", flag];
+    let (exit_code, output) = space.run(&args);
+    assert_error(&output, exit_code, (2, "invalid_arguments"));
+  }
+
+  let (exit_code, output) = space.run(&["login", "--keep-running"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output["robot"]["id"].clone(), output.get("canceled")), (json!("started"), None));
+  assert!(space.fake.canceled.lock().unwrap().is_empty());
+  let login = "test-user/virtual/login";
+  assert_eq!(space.last_start()["sourceBranch"], json!(format!("refs/heads/{login}")));
+  // the branches the robot of the whole stack lands are pushed: a push of them fails no robot
+  assert_eq!(
+    (space.remote_tip(AUTH), space.remote_tip(login), space.remote_tip(STACK)),
+    (space.local_tip(AUTH), space.local_tip(login), stack_tip)
+  );
+
+  // both robots run: each is the robot of its own subject
+  let mut beside = robot("beside", "RUNNING", "login", &space.local_tip(login));
+  beside["startDateTime"] = json!(minutes_ago(10));
+  space.add_listed_robot("beside", beside);
+  let output = space.robot_ok(&["login"]);
+  assert_eq!((output["robot"]["id"].clone(), output.get("stack_root")), (json!("beside"), None));
+  let output = space.robot_ok(&["auth", "--whole-stack"]);
+  assert_eq!((output["robot"]["id"].clone(), output["stack_root"].clone()), (json!("whole"), json!("auth")));
+
+  // the whole stack beside the Safe Push of a branch of it, from its stack branch, which is on the remote as it is
+  space.set_robots(vec![robot("piece", "RUNNING", "login", "0000")]);
+  let (exit_code, output) = space.run(&["auth", "--whole-stack"]);
+  assert_error(&output, exit_code, (4, "robot_running"));
+  assert_eq!(
+    next_steps(&output["error"]),
+    [(format!("{brd} robot login"), false), (format!("{brd} safe-push auth --whole-stack --keep-running"), true)]
+  );
+  let (exit_code, output) = space.run(&["auth", "--whole-stack", "--keep-running"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output["robot"]["id"].clone(), output.get("pushed")), (json!("started"), None));
+  assert_eq!(space.last_start()["sourceBranch"], json!(format!("refs/heads/{STACK}")));
+  assert!(space.fake.canceled.lock().unwrap().is_empty());
 }
 
 /// The remote stack branch moved after the sync to an older build of the stack (a push from the app in another window):
