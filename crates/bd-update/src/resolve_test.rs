@@ -2223,11 +2223,13 @@ fn the_round_of_a_pull_request_squashed_with_a_review_edit_shows_the_edit_and_as
   let (upstream, clone, squash) = squashed_under_noreply("a\nB2 reviewed\nc\n");
   let (_server, fake, environment) = github_that_merged(&clone, &clone.head(), &squash);
   let run = |args: &[&str]| run_prefixed(&environment, &[&["--full-ids"][..], args].concat());
+  // as printed, its `--prefix` too
   let next = |output: &Value, extra: &[&str]| {
     let next = output["session"]["next"].as_str().unwrap_or_else(|| panic!("{output}"));
-    let mut args: Vec<&str> = next.split(' ').skip(1).collect();
+    let mut args = vec!["--full-ids"];
+    args.extend(next.split(' ').skip(1));
     args.extend_from_slice(extra);
-    run(&args)
+    bd_cli::fixture_test::run_json(&environment, &args)
   };
   let (exit_code, round) = run(&["update"]);
   assert_eq!(exit_code, 1, "{round}");
