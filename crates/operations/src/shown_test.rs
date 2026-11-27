@@ -1,5 +1,5 @@
 use crate::shown::{ShownRun, ShownServices, after_run, close_plan, delete_closed_plan, extend_plan, open_plan, run_shown, shown_body, shown_request};
-use domain_policy::shown::{fix_conflict_comment, recorded_landed, recorded_reviewers, shown_review};
+use domain_policy::shown::{fix_conflict_comment, fix_taken_comment, recorded_landed, recorded_reviewers, shown_review};
 use domain_types::error::ErrorCode;
 use domain_types::fixtures::{asked, pull_request, robot};
 use domain_types::landing::{LandedFix, PlannedEffect};
@@ -439,8 +439,9 @@ async fn the_open_and_the_close_of_a_shown_review_against_origin_and_github() {
 }
 
 /// The extend of a shown review against a bare origin and the stateful fake of GitHub: a fix that landed goes onto its
-/// head, its reviewers are asked again and its body records the fix; a repeat adds nothing; a fix that doesn't apply
-/// leaves the head and is named in a comment once
+/// head, its reviewers are asked again and its body records the fix; a repeat adds nothing; a fix whose commit conflicts
+/// takes the files as master has them and is named with them in a comment once; a fix that doesn't apply leaves the head
+/// and is named in a comment once
 #[tokio::test(flavor = "multi_thread")]
 async fn the_extend_of_a_shown_review_against_origin_and_github() {
   let (repo, _) = repo_on_origin();
@@ -493,7 +494,8 @@ async fn the_extend_of_a_shown_review_against_origin_and_github() {
   assert!(run.records.iter().all(|record| record.status == EffectStatus::Done), "{:?}", run.records);
   assert_eq!(origin_tip(&repo, "user/review/auth/head"), Some(head.clone()));
 
-  // the target reworked auth, and the next fix is of that rework: it doesn't apply, a comment names it once
+  // the target reworked auth, and the next fix is of that rework: its commit takes auth.txt as master has it after the
+  // fix, a comment names the file once
   repo.git(&["checkout", "-q", "-B", "landing", "origin/master"]);
   repo.create_commit("Rework auth", "auth.txt", "reworked\n");
   repo.git(&["push", "-q", "origin", "HEAD:master"]);
@@ -503,18 +505,49 @@ async fn the_extend_of_a_shown_review_against_origin_and_github() {
   repo.land_copy_on_origin(&second);
   let r3 = robot_of("r3", &second);
   let plan = extend_plan(&extended, "auth", &[&r3], &[]).unwrap();
+  let mut taken = Vec::new();
   for _ in 0..2 {
     let run: ShownRun = run_shown(&services, &plan).await;
     assert!(run.records.iter().all(|record| record.status == EffectStatus::Done), "{:?}", run.records);
-    assert_eq!(run.not_applied.iter().map(|fix| fix.robot.as_str()).collect::<Vec<_>>(), ["r3"]);
+    assert_eq!(run.not_applied, []);
+    taken.push(run.taken.iter().map(|taken| (taken.fix.robot.clone(), taken.files.clone())).collect::<Vec<_>>());
   }
-  assert_eq!(origin_tip(&repo, "user/review/auth/head"), Some(head));
+  // a repeat finds the commit on the head
+  assert_eq!(taken, [vec![("r3".to_owned(), logins(&["auth.txt"]))], vec![]]);
+  let taken_head = origin_tip(&repo, "user/review/auth/head").unwrap();
+  assert_eq!(repo.git(&["rev-parse", &format!("{taken_head}^")]), head);
+  assert_eq!(repo.git(&["show", &format!("{taken_head}:auth.txt")]), "reworked 2");
+  let extended = after_run(extended, &plan, &run_shown(&services, &plan).await);
+
+  // the target reworked it again, and the next fix landed under another subject (an autosquash): it doesn't apply, the
+  // head stays, a comment names it once
+  repo.git(&["checkout", "-q", "-B", "landing", "origin/master"]);
+  repo.create_commit("Rework auth again", "auth.txt", "reworked 3\n");
+  repo.git(&["push", "-q", "origin", "HEAD:master"]);
+  repo.git(&["fetch", "-q", "origin", "master"]);
+  repo.git(&["checkout", "-q", "-B", "third", "origin/master"]);
+  let third = repo.create_commit("(auth) Fix the second rework", "auth.txt", "reworked 4\n");
+  repo.git(&["checkout", "-q", "-B", "landing", "origin/master"]);
+  repo.create_commit("Fix the second rework of auth", "auth.txt", "reworked 4\n");
+  repo.git(&["push", "-q", "origin", "HEAD:master"]);
+  repo.git(&["fetch", "-q", "origin", "master"]);
+  let r4 = robot_of("r4", &third);
+  let plan = extend_plan(&extended, "auth", &[&r4], &[]).unwrap();
+  for _ in 0..2 {
+    let run: ShownRun = run_shown(&services, &plan).await;
+    assert!(run.records.iter().all(|record| record.status == EffectStatus::Done), "{:?}", run.records);
+    assert_eq!(run.not_applied.iter().map(|fix| fix.robot.as_str()).collect::<Vec<_>>(), ["r4"]);
+  }
+  assert_eq!(origin_tip(&repo, "user/review/auth/head"), Some(taken_head));
   let state = fake_repository.state();
   assert_eq!(
     state.pulls[0].comments.iter().map(|comment| comment.body.clone()).collect::<Vec<_>>(),
-    [fix_conflict_comment(&second, "https://patronus/robot/r3")]
+    [
+      fix_taken_comment(&second, &logins(&["auth.txt"]), "https://patronus/robot/r3", "master"),
+      fix_conflict_comment(&third, "https://patronus/robot/r4")
+    ]
   );
-  assert_eq!(recorded_landed(&state.pulls[0].body), vec![fix, second]);
+  assert_eq!(recorded_landed(&state.pulls[0].body), vec![fix, second, third]);
 }
 
 /// A repository on a bare origin whose master it fetched: the commit of it

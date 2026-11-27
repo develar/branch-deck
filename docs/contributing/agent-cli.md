@@ -2213,8 +2213,9 @@ the CodeOwners service with the Space token of Patronus. Once the robot merged, 
 by content while no robot of it is listed (older than the 7 days of the listing) opens on its head. A fix lands by its
 own Safe Push of the branch (`brd robot` names the review it `extends`); once merged, `brd request-review <branch>`
 (no flag needed with a shown review) replays it onto the head of the review, pushes it leased on the head the remote
-has, asks the reviewers again and records the fix in the body (`shown.extended`: `fixes`, `head`, `not_applied`, a
-fix that doesn't apply on its commits and is named in a comment instead); `--reviewer` adds reviewers to the review
+has, asks the reviewers again and records the fix in the body (`shown.extended`: `fixes`, `head`; `took_files`, a fix
+whose commit conflicts on its commits and takes the files as master has them after the fix, named in a comment;
+`not_applied`, a fix master has under no identity of its commit, named in a comment instead); `--reviewer` adds reviewers to the review
 and its record. While a fix lands the review is `extending`, nobody's move. `brd close-review <branch> [--allow-unapproved]
 [--dry-run]` closes it once every reviewer it asked approved (`state`, `approved_by`, `comment`, `closed`) and deletes
 its branches; of a review closed on GitHub it deletes the branches the remote still has at the tips of its pull request

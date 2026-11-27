@@ -849,8 +849,9 @@ body records (`shown`: `state`, `head`, `base`, `landed`); one open already asks
 a branch that landed without one gets it now (`shown.created`). `no_shown_review` (exit 4): no merged Safe Push
 landed it yet. A branch with a shown review needs no flag: `brd request-review <branch>` opens it, or, once a fix of
 the branch landed by its own Safe Push, replays the fix onto the head of the review, asks its reviewers again and
-records the fix in its body (`shown.extended`: `fixes`, `head`, `not_applied`: a fix that doesn't apply on its
-commits, which a comment names instead); a repeat adds nothing. --reviewer adds reviewers to it.
+records the fix in its body (`shown.extended`: `fixes`, `head`; `took_files`: a fix whose commit conflicts on its
+commits takes the files as master has them after the fix, which a comment names; `not_applied`: a fix master has under
+no identity of its commit, which a comment names instead, the next fixes applied all the same); a repeat adds nothing. --reviewer adds reviewers to it.
 ";
 
 /// `brd close-review --help`: the close of a shown review

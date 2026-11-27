@@ -19,6 +19,8 @@
 //!   would delete: an hour after its close, while no open shown review of the branch is listed, those the remote still
 //!   has at the tips of its pull request are deleted (`Intent::DeleteClosedShownReview`); a branch gone or moved since
 //!   stays (a newer review of the branch took the names);
+//! - `fix_conflict_comment` and `fix_taken_comment`: the comment of a fix that doesn't apply on the commits of the
+//!   review, of one whose commits took the files they conflict in from what landed them;
 //! - `shown_news`: what the app does of them, each told once by the session: a draft whose branch landed opens (by a
 //!   merged Safe Push, or by content when no robot of it is listed), a fix that landed extends, an approved one closes,
 //!   one closed elsewhere loses its branches.
@@ -367,6 +369,28 @@ pub fn shown_news<'a>(
 pub fn fix_conflict_comment(source: &str, url: &str) -> String {
   format!("Landed a follow-up as {}; it does not apply on this review's commits: {url}", short_id(source))
 }
+
+/// The comment of a fix whose commits conflicted on those of a shown review and took the files git cannot merge, `files`,
+/// from the commits that landed them on `target`: "Landed a follow-up as 1a2b3c4d5e; `auth.rs` also shows what master
+/// changed in it after this review: <the robot page>"; up to four files named, from five on the first three and the count
+#[must_use]
+pub fn fix_taken_comment(source: &str, files: &[String], url: &str, target: &str) -> String {
+  let quoted: Vec<String> = files.iter().map(|file| format!("`{file}`")).collect();
+  let named = match quoted.as_slice() {
+    [] => String::new(),
+    [only] => only.clone(),
+    all @ [_, _, _, _, _, ..] => format!("{} and {} more", all[..NAMED_FILES].join(", "), all.len() - NAMED_FILES),
+    [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+  };
+  let (shows, them) = if files.len() == 1 { ("shows", "it") } else { ("show", "them") };
+  format!(
+    "Landed a follow-up as {}; {named} also {shows} what {target} changed in {them} after this review: {url}",
+    short_id(source)
+  )
+}
+
+/// The files a comment of a fix names before the count of the rest, from five on
+const NAMED_FILES: usize = 3;
 
 /// The ten first characters of a commit id
 fn short_id(id: &str) -> &str {

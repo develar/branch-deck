@@ -6114,7 +6114,7 @@ each with the reason.
 ### Requirement: `brd request-review`: A branch with a shown review opens it or takes the fixes that landed
 
 `brd request-review <branch>` of a branch whose review is a shown one MUST open it or, once a fix of the branch landed by
-its own Safe Push, add the fix to it as the app does (`shown.extended`: `fixes`, `head`, `not_applied`), with or without
+its own Safe Push, add the fix to it as the app does (`shown.extended`: `fixes`, `head`, `not_applied`, `took_files`), with or without
 `--after-landing`, also of a branch that left the table; a repeat adds nothing. `brd robot <branch>` MUST name the
 shown review a running or merged Safe Push of a fix extends (`extends`).
 

@@ -5568,7 +5568,8 @@ writes them: the listing of the branches of a sync and its inputs leave `refs/re
 (`PlannedEffect::PushReview`, `ExtendReview`, `DeleteReview`, `DeleteReviewAt`, of `operations::land_execute` and
 `operations::shown`); no
 repository lock, as they are no ref of the repository and every write is leased on the remote (the extend writes
-objects and, with signing, the temporary ref of `fast-import`, deleted after the push):
+objects and the temporary refs of `fast-import`, of a commit that took files and of signing, deleted after the replay
+and after the push):
 
 1. Push (`push_review`): one `ls-remote --exit-code origin` of both (exit 2: none), one `merge-base` of the commit and
    the remote-tracking ref of the target (the fork point), then one `push --porcelain --atomic` of the ones that are not
@@ -5581,11 +5582,26 @@ objects and, with signing, the temporary ref of `fast-import`, deleted after the
    source revisions of the fixes (a head the repository lacks is fetched by its branch, objects only:
    `fetch --no-write-fetch-head --refmap= origin refs/heads/<head>`; a source it lacks is an error), then per fix one
    `git replay --ref-action=print --onto=<head> <source> ^<remote-tracking ref of the target>`: the commits the robot
-   tested past the target, onto the head, writing objects only. A commit whose change the head has becomes empty and
-   is dropped, so a repeat after a stop prints the head itself and pushes nothing. Exit 1, a conflict, stops there:
-   the head keeps what applied before (its caller comments the rest). With `commit.gpgsign` the new commits are
-   signed (`sign_range`: `rev-list`, `cat-file`, `fast-import`), then one `push --atomic` of the head leased on what
-   `ls-remote` saw. The base stays: the fork point of the first landing. Its caller then waits until GitHub shows the
+   tested past the target, onto the head, writing objects only (`git_ops::fix_replay`). A commit whose change the head
+   has becomes empty and is dropped, so a repeat after a stop prints the head itself and pushes nothing. Exit 1, a
+   conflict, replays that fix commit by commit: one `rev-list --left-right --reverse <source>...<head>
+   ^<target>` of the commits of the fix and of the head, one `rev-list` of the commits of the target past the head by
+   the authors of the fix (`ids_by_key`), then a binary search of replays finds the commit `c` that conflicts
+   (`first_conflict`). Its landed commit `u` is the one of the target with its identity (`CommitKey`: the author email,
+   the author time, the subject without the prefix); one `merge-tree --write-tree -z --merge-base=<c>^ <tip> <c>`
+   names what git cannot merge (the stages and the paths of its `CONFLICT` messages, so the `<path>~<side>` copies of
+   a file/directory conflict too), one `cat-file --batch-check` reads `u:<path>` of each, and one `fast-import`
+   (`write_edited_commit`, the author and the message of `c`, the committer of one `var GIT_COMMITTER_IDENT`, unsigned)
+   writes the tree of the merge with each such path as `u` has it, or deleted where `u` lacks it: the review shows the
+   file as master has it after the fix, so its diff shows what master changed in it since the review too, which the
+   comment of the fix says with the files. One that changes nothing then is dropped, one whose identity the head has
+   already is left out (a repeat, though a later fix changed the files it took), and the rest of the fix goes on by
+   `git replay` of `<source> ^<c>`. A `c` with no `u` (an autosquash folded it, a reword renamed it) or a path that is
+   not UTF-8 leaves that fix out, the head where the fix found it, and the next fixes go on from there; as `u` may have
+   landed after the last fetch, the target is fetched then (`fetch_baseline`) and the fixes replayed once more. One
+   `update-ref` deletes the temporary refs of the commits written, also on a failure. With `commit.gpgsign` the new
+   commits are signed (`sign_range`: `rev-list`, `cat-file`, `fast-import`), then one `push --atomic` of the head
+   leased on what `ls-remote` saw. The base stays: the fork point of the first landing. Its caller then waits until GitHub shows the
    head at the new commit (`wait_for_branch_at`, `GET branches/<name>` every 2 s for 30 s: a Space mirror copies the
    push a moment later) before it asks the reviewers again.
 3. Delete (`delete_review`): one `ls-remote` of both, then one atomic push of a leased delete (`:refs/heads/<name>`) of
@@ -5607,12 +5623,14 @@ A Space origin mirrors both to GitHub; the creation of the pull request asks aga
 (`wait_for_mirror`). Process budgets: push one `ls-remote`, one `merge-base`, one `push`; delete one `ls-remote`, one
 `push` (`a_push_and_a_delete_of_a_shown_review`), the delete of one closed elsewhere the same, no `push` when nothing
 is left at its tips (`a_delete_of_a_shown_review_closed_elsewhere`); extend one `ls-remote`, one `cat-file`, one `replay` per fix, one
-`push`, a repeat no `push` (`an_extend_of_a_shown_review_by_a_fix_that_landed`). At the level of `brd`, after its sync:
+`push`, a repeat no `push` (`an_extend_of_a_shown_review_by_a_fix_that_landed`); of a fix that conflicts and one that
+applies after it besides two `rev-list`, and of the commit that conflicts one `merge-tree`, two `cat-file`, one `var`,
+one `fast-import` and one `update-ref`, a repeat only the two `rev-list` (`an_extend_of_a_shown_review_by_a_fix_that_conflicts`). At the level of `brd`, after its sync:
 the start adds the push of the review to the Safe Push start, the open its `ls-remote` and `merge-base`, the extend its
 processes and `config` (`commit.gpgsign`), the close its `ls-remote` and push (`a_review_after_landing` of
 `crates/bd-cli/src/process_budget_test.rs`).
 
-Code: `crates/sync-core/src/review_head.rs`, `crates/operations/src/shown.rs`.
+Code: `crates/sync-core/src/review_head.rs`, `crates/git-ops/src/fix_replay.rs`, `crates/operations/src/shown.rs`.
 
 #### Push into the baseline
 

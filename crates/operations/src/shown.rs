@@ -11,8 +11,9 @@
 //!   recorded in its body;
 //! - `Intent::ExtendShownReview`, once a fix of the branch landed after the review opened (the news
 //!   `ShownReviewFixLanded`, `brd request-review`): the commits of the fixes are replayed onto its head and pushed
-//!   leased on the head the remote has (`sync_core::review_head::extend_review`), a fix that doesn't apply is named in a
-//!   comment instead (once: a repeat finds it); once GitHub shows the new head (a mirror), its reviewers are asked again,
+//!   leased on the head the remote has (`sync_core::review_head::extend_review`); a fix whose commits took the files
+//!   they conflict in from what landed them is named in a comment with those files, one that doesn't apply in a
+//!   comment instead (each once: a repeat finds it); once GitHub shows the new head (a mirror), its reviewers are asked again,
 //!   and the record of its body names the fixes last, so a run that stopped between the steps is due again and adds
 //!   nothing twice;
 //! - `Intent::CloseShownReview`, once every reviewer it asked approved (the news `ShownReviewApproved`, `brd
@@ -35,7 +36,9 @@ use crate::land_execute::Accepted;
 use crate::pull_request::{github_of, write_plan};
 use crate::registry::{Answer, OperationRequest, Registry};
 use crate::robot_start::github_failure;
-use domain_policy::shown::{close_comment, close_refusal, closed_remains, fix_conflict_comment, landing_robot, opens_by_content, pending_fixes, review_state, reviewers_record};
+use domain_policy::shown::{
+  close_comment, close_refusal, closed_remains, fix_conflict_comment, fix_taken_comment, landing_robot, opens_by_content, pending_fixes, review_state, reviewers_record,
+};
 use domain_types::branch_names::{baseline_on_remote, review_branch_names};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{LandedFix, PlannedEffect};
@@ -45,6 +48,7 @@ use domain_types::pull_request::{ClosedShownReview, CreatedPullRequest, Requeste
 use domain_types::reason::Reason;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_signing::commit_signing;
+use git_ops::fix_replay::FixReplay;
 use github::service::GitHubService;
 use remote_facts::pull_request_create::{CreatePullRequestParams, MIRROR_WAIT, create_pull_request, wait_for_branch_at};
 use remote_facts::pull_request_writes::{close_pull_request, comment_once, mark_ready_for_review, record_shown_review, request_pull_request_reviewers};
@@ -366,6 +370,51 @@ pub struct ShownRun {
   pub extended: Option<ReviewExtension>,
   /// The fixes that don't apply on the head of the review, which a comment names (`ExtendReview`)
   pub not_applied: Vec<LandedFix>,
+  /// The fixes whose commits took the files they conflict in from what landed them, which a comment names with those
+  /// files (`ExtendReview`)
+  pub taken: Vec<TakenFix>,
+}
+
+/// A fix of a shown review whose commits took the files they conflict in from what landed them on the target
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TakenFix {
+  pub fix: LandedFix,
+  /// The files it took, each once, in the order of its commits
+  pub files: Vec<String>,
+}
+
+/// What the extend of a shown review into `target` says of its fixes (module docs), `replayed` what became of each of
+/// `fixes`, in their order
+#[derive(Debug, Default)]
+struct FixOutcomes {
+  not_applied: Vec<LandedFix>,
+  taken: Vec<TakenFix>,
+  /// One per fix that doesn't apply or took files, in the order of the fixes
+  comments: Vec<String>,
+}
+
+fn fix_outcomes(fixes: &[LandedFix], replayed: &[FixReplay], target: &str) -> FixOutcomes {
+  let mut outcomes = FixOutcomes::default();
+  for (fix, replay) in fixes.iter().zip(replayed) {
+    match replay {
+      FixReplay::NotApplied { .. } => {
+        outcomes.comments.push(fix_conflict_comment(&fix.source, &fix.url));
+        outcomes.not_applied.push(fix.clone());
+      }
+      FixReplay::Applied { taken: commits } if !commits.is_empty() => {
+        let mut files: Vec<String> = Vec::new();
+        for path in commits.iter().flat_map(|commit| &commit.paths) {
+          if !files.contains(path) {
+            files.push(path.clone());
+          }
+        }
+        outcomes.comments.push(fix_taken_comment(&fix.source, &files, &fix.url, target));
+        outcomes.taken.push(TakenFix { fix: fix.clone(), files });
+      }
+      FixReplay::Applied { .. } => {}
+    }
+  }
+  outcomes
 }
 
 /// The effects of `plan` in their order (module docs); the first that fails skips the rest
@@ -474,7 +523,7 @@ async fn shown_effect(services: &ShownServices, effect: &PlannedEffect, run: &mu
       .await
       .map_err(|error| ApiError::internal(format!("The extend of the shown review failed: {error}")))?
       .map_err(|error| ApiError::new(ErrorCode::PushRefused, format!("{error:#}")))?;
-      let not_applied: Vec<LandedFix> = extension.conflict.map_or_default(|first| fixes[first..].to_vec());
+      let outcomes = fix_outcomes(fixes, &extension.fixes, baseline_on_remote(&services.baseline));
       // the reviewers are asked again once GitHub shows them the fix: a mirror copies the push a moment later
       if extension.head != extension.old_head {
         let (head, _) = review_branch_names(&services.prefix, branch).map_err(|error| ApiError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
@@ -489,13 +538,14 @@ async fn shown_effect(services: &ShownServices, effect: &PlannedEffect, run: &mu
         }
       }
       run.extended = Some(extension);
-      for fix in &not_applied {
-        let comment = fix_conflict_comment(&fix.source, &fix.url);
-        comment_once(github, path, repository, *number, &comment, &comment)
+      for comment in &outcomes.comments {
+        // the whole comment is its mark: a repeat of the same fix says the same
+        comment_once(github, path, repository, *number, comment, comment)
           .await
           .map_err(github_error(format!("Cannot comment on pull request #{number}")))?;
       }
-      run.not_applied = not_applied;
+      run.not_applied = outcomes.not_applied;
+      run.taken = outcomes.taken;
       Ok(())
     }
     PlannedEffect::RecordShown { number, reviewers, landed } => record_shown_review(github, path, repository, *number, reviewers, landed)

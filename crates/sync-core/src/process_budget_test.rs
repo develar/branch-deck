@@ -1529,30 +1529,82 @@ fn a_delete_of_a_shown_review_closed_elsewhere() {
   assert_processes(&git, &[("ls-remote", 1)]);
 }
 
+/// The commit of auth on a bare origin, its shown review pushed and landed by a robot as a copy of its own
+fn landed_shown_review() -> TestRepo {
+  let (repo, tip) = auth_on_origin();
+  crate::review_head::push_review(repo.git_executor(), repo.path_str(), "origin", "test", "auth", &tip, "refs/remotes/origin/master").unwrap();
+  repo.land_copy_on_origin(&tip);
+  repo
+}
+
+/// A fix of auth on the target as the repository fetched it, which a robot landed as a copy of its own
+fn landed_fix(repo: &TestRepo, name: &str, content: &str) -> String {
+  repo.git(&["checkout", "-q", "-B", name, "origin/master"]);
+  let fix = repo.create_commit(&format!("(auth) {name}"), "auth.txt", content);
+  repo.land_copy_on_origin(&fix);
+  fix
+}
+
+/// The unsigned fixes `sources` past `origin/master`
+fn unsigned_fixes(sources: &[String]) -> crate::review_head::Fixes<'_> {
+  crate::review_head::Fixes {
+    sources,
+    target_ref: "refs/remotes/origin/master",
+    signing: git_ops::commit_signing::Signing::Off,
+  }
+}
+
 /// The extend of a shown review by a fix that landed: one `ls-remote` of its head, one `cat-file --batch-check` of the
 /// head and the commit the robot landed, one `replay` of the fix, one push of the head; with `commit.gpgsign` off no
 /// signing process, and a repeat (its change is on the head) pushes nothing
 #[test]
 fn an_extend_of_a_shown_review_by_a_fix_that_landed() {
-  use crate::review_head::{Fixes, extend_review, push_review};
-  use git_ops::commit_signing::Signing;
-  let (repo, tip) = auth_on_origin();
-  push_review(repo.git_executor(), repo.path_str(), "origin", "test", "auth", &tip, "refs/remotes/origin/master").unwrap();
-  // the robots landed auth and then its fix as copies of their own
-  repo.land_copy_on_origin(&tip);
-  repo.git(&["checkout", "-q", "-B", "fix", "origin/master"]);
-  let fix = repo.create_commit("(auth) Fix auth", "auth.txt", "auth 2\n");
-  repo.land_copy_on_origin(&fix);
-  let sources = [fix];
-  let fixes = Fixes {
-    sources: &sources,
-    target_ref: "refs/remotes/origin/master",
-    signing: Signing::Off,
-  };
+  use crate::review_head::extend_review;
+  let repo = landed_shown_review();
+  let sources = [landed_fix(&repo, "fix", "auth 2\n")];
+  let fixes = unsigned_fixes(&sources);
   let git = counting();
   extend_review(&git, repo.path_str(), "origin", "test", "auth", fixes).unwrap();
   assert_processes(&git, &[("cat-file", 1), ("ls-remote", 1), ("push", 1), ("replay", 1)]);
   let git = counting();
   extend_review(&git, repo.path_str(), "origin", "test", "auth", fixes).unwrap();
   assert_processes(&git, &[("cat-file", 1), ("ls-remote", 1), ("replay", 1)]);
+}
+
+/// The extend of a shown review by a fix whose commit conflicts, then a fix that applies: past the `ls-remote`, the
+/// `cat-file --batch-check` and the `replay` of each fix, the fix that conflicts walks its commits and those of the head
+/// (one `rev-list`) and the commits of the target by their authors (one more); its commit one `merge-tree`, one
+/// `cat-file --batch-check` of the files of what landed it, one `cat-file --batch` of the commit, one `var` of the
+/// committer and one `fast-import`; one `update-ref` deletes the temporary ref, one push the head. A repeat walks again
+/// and leaves the commit out: nothing more is written
+#[test]
+fn an_extend_of_a_shown_review_by_a_fix_that_conflicts() {
+  use crate::review_head::extend_review;
+  let repo = landed_shown_review();
+  // master changed auth after the landing, the fix is of that change, the next fix applies on it
+  repo.git(&["checkout", "-q", "-B", "rework", "origin/master"]);
+  repo.create_commit("Rework auth", "auth.txt", "reworked\n");
+  repo.git(&["push", "-q", "origin", "HEAD:master"]);
+  repo.git(&["fetch", "-q", "origin"]);
+  let sources = [landed_fix(&repo, "fix", "reworked 2\n"), landed_fix(&repo, "next", "reworked 3\n")];
+  let fixes = unsigned_fixes(&sources);
+  let git = counting();
+  extend_review(&git, repo.path_str(), "origin", "test", "auth", fixes).unwrap();
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 3),
+      ("fast-import", 1),
+      ("ls-remote", 1),
+      ("merge-tree", 1),
+      ("push", 1),
+      ("replay", 2),
+      ("rev-list", 2),
+      ("update-ref", 1),
+      ("var", 1),
+    ],
+  );
+  let git = counting();
+  extend_review(&git, repo.path_str(), "origin", "test", "auth", fixes).unwrap();
+  assert_processes(&git, &[("cat-file", 1), ("ls-remote", 1), ("replay", 2), ("rev-list", 2)]);
 }

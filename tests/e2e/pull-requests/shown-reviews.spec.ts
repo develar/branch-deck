@@ -161,6 +161,41 @@ async function mergeFix(page: Page, repo: TestRepositoryBuilder, fix: PatronusRo
   await extended
 }
 
+/**
+ * The open review after landing of auth whose head has a commit of alice with the file of the fix, then the fix, its
+ * Safe Push landing it on master as a commit with `subject` at `timestamp` (the fix's own, or another), merged: the
+ * repository, the head before the fix, the tip of the fix and the commit on master
+ */
+async function landConflictingFix(
+  page: Page,
+  setupRepo: SetupRepo,
+  syncAndWaitForBranches: () => Promise<void>,
+  subject: string,
+  timestamp: number,
+): Promise<{ repo: TestRepositoryBuilder; other: string; fixTip: string; landed: string }> {
+  // the head of the review has the file of the fix already: the Safe Push that landed it took a commit of alice too
+  const { repo, head: other } = await setupOpenReview(page, setupRepo, syncAndWaitForBranches, "changesRequested", repo =>
+    repo.commitOnRemote(HEAD, { subject: "Add the session", author: "Alice Smith <alice@example.com>", timestamp: 1704188000, files: { "auth/session.js": "other\n" } }),
+  )
+  const fix = await startFix(page, repo, syncAndWaitForBranches, other)
+  const landed = await repo.commitOnRemote("master", { subject, author: "Test User <test@example.com>", timestamp, files: { "auth/session.js": "export const session = 1\n" } })
+  await mergeFix(page, repo, fix, other)
+  return { repo, other, fixTip: fix.sourceRevision!, landed }
+}
+
+/**
+ * The one comment of the extend of the fix `fixTip`, "Landed a follow-up as <sha>" and `rest` (a pattern), `head` checks
+ * the head of the review; its body records the fix, and the next listing and robots comment nothing again
+ */
+async function expectOneComment(page: Page, repo: TestRepositoryBuilder, rest: string, fixTip: string, head: () => Promise<void>): Promise<void> {
+  const comments = () => gitHubRequests(repo, "POST", "issues", 12, "comments")
+  expect(await comments()).toEqual([{ body: expect.stringMatching(new RegExp(`^Landed a follow-up as ${fixTip.slice(0, 10)}${rest}`)) }])
+  await head()
+  expect((await bodyWrites(repo, 12)).at(-1)).toContain(`<!-- branch-deck show landed: ${fixTip} -->`)
+  await listPullRequestsAgain(page, repo)
+  expect(await comments()).toHaveLength(1)
+}
+
 test.describe("Reviews after landing", () => {
   test(
     "should start a Safe Push and Request Review… from the popover of S with the code owners of the changes, the draft opened into the fork point before the robot",
@@ -267,23 +302,27 @@ test.describe("Reviews after landing", () => {
     expect((await bodyWrites(repo, 12)).at(-1)).toContain(`<!-- branch-deck show landed: ${fixTip} -->`)
   })
 
-  test("should comment once on a fix that doesn't apply on the commits of the review", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    // the head of the review has the file of the fix already: the Safe Push that landed it took a commit of alice too
-    const { repo, head: other } = await setupOpenReview(page, setupRepo, syncAndWaitForBranches, "changesRequested", repo =>
-      repo.commitOnRemote(HEAD, { subject: "Add the session", author: "Alice Smith <alice@example.com>", timestamp: 1704188000, files: { "auth/session.js": "other\n" } }),
-    )
-    const fix = await startFix(page, repo, syncAndWaitForBranches, other)
-    const fixTip = fix.sourceRevision!
-    await mergeFix(page, repo, fix, other)
-    const comments = () => gitHubRequests(repo, "POST", "issues", 12, "comments")
-    expect(await comments()).toEqual([
-      { body: expect.stringMatching(new RegExp(`^Landed a follow-up as ${fixTip.slice(0, 10)}; it does not apply on this review's commits: https://`)) },
-    ])
-    // the head keeps what it had; the next listing and robots ask nothing again
-    expect((await repo.getRemoteBranches())[HEAD]).toBe(other)
-    expect((await bodyWrites(repo, 12)).at(-1)).toContain(`<!-- branch-deck show landed: ${fixTip} -->`)
-    await listPullRequestsAgain(page, repo)
-    expect(await comments()).toHaveLength(1)
+  test("should take the file of a fix that conflicts on the commits of the review as master has it after the fix, and name it in a comment once", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // its robot lands the fix on master, by its author at its time: the app has not fetched it yet
+    const { repo, other, fixTip, landed } = await landConflictingFix(page, setupRepo, syncAndWaitForBranches, "Keep the session", 1704189000)
+    await expectOneComment(page, repo, `; \`auth/session\\.js\` also shows what master changed in it after this review: https://`, fixTip, async () => {
+      // the fix on the head of the review, by the target fetched: the commit that landed it was newer than the last fetch
+      const moved = (await repo.getRemoteBranches())[HEAD]!
+      expect(await repo.revision(`${moved}~1`)).toBe(other)
+      expect(await repo.revision("origin/master")).toBe(landed)
+    })
+  })
+
+  test("should comment once on a fix that master has under no identity of its commit, the head as it was", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // its robot landed it folded into another commit (an autosquash): master has no commit of its identity
+    const { repo, other, fixTip } = await landConflictingFix(page, setupRepo, syncAndWaitForBranches, "Keep the session and the token", 1704189100)
+    await expectOneComment(page, repo, "; it does not apply on this review's commits: https://", fixTip, async () => {
+      expect((await repo.getRemoteBranches())[HEAD]).toBe(other)
+    })
   })
 
   test("should close a review after landing every reviewer it asked approved, with its comment, and delete its branches", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -9,28 +9,35 @@
 //!   `merge-base` and one push; no push when both are where they go.
 //! - `extend_review`: the fixes of the branch that landed after the review opened go onto its head: the commits of each
 //!   merged Safe Push past the target (`<source> ^<target>`, what its robot tested and landed) replayed onto the head the
-//!   remote has (`git replay`, which writes objects only and drops a commit whose change the head has: a repeat after
-//!   a crash adds nothing), signed per `commit.gpgsign`, and pushed leased on that head. A fix that doesn't apply stops
-//!   the replay there; the head keeps what applied before it. One `ls-remote`, one `cat-file --batch-check` (a fetch of
-//!   the head only when it is not local), one `replay` per fix, one push when the head moved; with signing the
-//!   `rev-list`, `cat-file` and `fast-import` of `sign_range`.
+//!   remote has (`git_ops::fix_replay`: `git replay`, which writes objects only and drops a commit whose change the head
+//!   has, so a repeat after a crash adds nothing), signed per `commit.gpgsign`, and pushed leased on that head. A commit
+//!   of a fix that conflicts takes the files git cannot merge from the commit that landed it on the target: the review
+//!   shows them as master has them after the fix. A fix whose commit has no landed commit of its identity doesn't apply:
+//!   the head stays where it found it, and the next fixes apply all the same; as the commit may have landed after the
+//!   last fetch of the target, the target is fetched then (`fetch_baseline`) and the fixes replayed once more on it. One
+//!   `ls-remote`, one `cat-file --batch-check` (a fetch of the head only when it is not local), one `replay` per fix,
+//!   one push when the head moved; a fix that conflicts two `rev-list`, the replays of the search and per conflicting
+//!   commit one `merge-tree`, one `cat-file --batch-check`, one `cat-file --batch` and one `fast-import` (with one `var`
+//!   of the committer per extend and one `update-ref` of the temporary refs); with signing the `rev-list`, `cat-file`
+//!   and `fast-import` of `sign_range`.
 //! - `delete_review`: the ones the remote has are deleted in one push, each leased on what it has: a leased delete of a
 //!   ref that is gone is `[rejected] (stale info)`, which would fail the atomic push whole. None left is done.
 //! - `delete_review_at`: of a review closed elsewhere (on GitHub), only the ones the remote still has at the tips of its
 //!   pull request are deleted, in one push leased on them: a branch gone or moved since (a newer review of the branch
 //!   took the names) stays. One `ls-remote` and one push; none when nothing is left at those tips.
 
+use crate::baseline::{fetch_baseline, resolve_baseline_upstream};
 use crate::push_lease::{LeaseSource, PushOptions, PushRef, push_refs};
 use anyhow::{Context, Result, anyhow, bail};
 use domain_types::branch_names::review_branch_names;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::cat_file_batch::object_types;
 use git_ops::commit_signing::{Signing, sign_range};
+use git_ops::fix_replay::{FixReplay, replay_fixes};
 use git_ops::remote_command::{execute_remote_command, execute_remote_command_accepting};
-use git_ops::replay::replay_range;
 use git_ops::revs::merge_base;
 use std::collections::HashMap;
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 /// What the remote has of the branches of a shown review: the tip of each, `None` for one it lacks
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -121,9 +128,9 @@ pub struct ReviewExtension {
   pub old_head: String,
   /// The head now: the commits of the fixes that applied on top of `old_head`; `old_head` when none added a change
   pub head: String,
-  /// The index in the fixes of the first that doesn't apply on the head (the ones after it were not tried); `None` when
-  /// every fix applied
-  pub conflict: Option<usize>,
+  /// What became of each fix, in the order of `Fixes::sources`: applied (the commits that took files from what landed
+  /// them named), or not applied
+  pub fixes: Vec<FixReplay>,
 }
 
 /// The fixes a shown review takes (`extend_review`)
@@ -159,17 +166,20 @@ pub fn extend_review(git: &GitCommandExecutor, repository_path: &str, remote: &s
   if types[0] != Some("commit") {
     fetch_head(git, repository_path, remote, &head_name)?;
   }
-  let exclusion = format!("^{target_ref}");
-  let mut head = old_head.clone();
-  let mut conflict = None;
-  for (index, source) in sources.iter().enumerate() {
-    let replayed = replay_range(git, repository_path, &head, &[source, &exclusion]).map_err(|error| anyhow!("Cannot replay {source} onto {head}: {error}"))?;
-    let Some(tip) = replayed else {
-      conflict = Some(index);
-      break;
-    };
-    head = tip;
+  let mut replayed = replay_fixes(git, repository_path, &old_head, sources, target_ref)?;
+  if replayed.fixes.iter().any(|fix| matches!(fix, FixReplay::NotApplied { .. }))
+    && let Some(upstream) = target_ref
+      .strip_prefix("refs/remotes/")
+      .map(|baseline| resolve_baseline_upstream(git, repository_path, baseline))
+      .transpose()?
+      .flatten()
+  {
+    // the commit that landed a fix may be newer than the last fetch of the target: once more on the target as it is
+    debug!(target_ref, "a fix doesn't apply: the target fetched, the fixes once more");
+    fetch_baseline(git, repository_path, &upstream, &mut |_| {}, &|| false).with_context(|| format!("Cannot fetch {}", upstream.name))?;
+    replayed = replay_fixes(git, repository_path, &old_head, sources, target_ref)?;
   }
+  let mut head = replayed.tip;
   if head != old_head {
     let signed = sign_range(git, repository_path, Some(&old_head), &head, signing)?;
     if let Some(tip) = signed.as_ref().and_then(|signed| signed.ids.last()) {
@@ -187,7 +197,11 @@ pub fn extend_review(git: &GitCommandExecutor, repository_path: &str, remote: &s
     }
     refused(&pushed?, &refs)?;
   }
-  Ok(ReviewExtension { old_head, head, conflict })
+  Ok(ReviewExtension {
+    old_head,
+    head,
+    fixes: replayed.fixes,
+  })
 }
 
 /// The commits of the head `head_name` of a shown review from `remote`, which this repository lacks (the objects only:

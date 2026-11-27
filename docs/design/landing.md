@@ -323,10 +323,16 @@ Its life, one robot, no gate:
    and the record of the body names the source revision of the fix last (`<!-- branch-deck show landed: … -->`). The
    record is what says the fix was taken: until it, the review waits for the fix, so an approval of the old head never
    closes it, and a run that stopped between the steps is due again and adds nothing twice: the replay drops a commit
-   whose change the head has, and the comment
-   of a fix that doesn't apply ("Landed a follow-up as <sha>; it does not apply on this review's commits: <the robot
-   page>") is posted only when no comment has it. Such a fix leaves the head as it was; its reviewers read it in the
-   comment.
+   whose change the head has, and leaves out one the head has by its identity.
+   A commit of a fix that conflicts on the commits of the review (master changed their lines after the landing, and
+   the fix is of that change) takes the files git cannot merge as master has them after the fix (the commit that
+   landed it, by the author, the author time and the subject): the review shows the fix whole, and its diff shows what
+   master changed in those files since the review too, which a comment says ("Landed a follow-up as <sha>; `auth.rs`
+   also shows what master changed in it after this review: <the robot page>"). A fix whose commit master has under no
+   identity of its own (an autosquash folded it, a reword renamed it) leaves the head as it was, and a comment names
+   it ("Landed a follow-up as <sha>; it does not apply on this review's commits: <the robot page>"); the fixes after
+   it apply all the same. Each comment is posted only when no comment has it, and the record names every fix the
+   extend tried, so a fix that doesn't apply is not tried again.
 5. Once every reviewer it asked approved, by the latest review of each (GitHub's `reviewDecision` approves after the
    first approval and counts a bot that requests changes; a bot and someone not asked count for nothing), it closes
    (`NewsEvent::ShownReviewApproved`, `brd close-review`) with a comment that names who approved it, and its branches
@@ -721,6 +727,10 @@ its own robot and a start beside it would fail. The plan says that need once, as
     second truth beside the open pull request of the author, which every session reads already.
 - **A follow-up pull request per fix.**
   - *Why not:* the review of one change splits into several; the fix goes onto the head of the same pull request.
+- **A fix that conflicts on the head left out**, or committed with the markers of the conflict.
+  - *Why not:* left out, the review never shows the fix the reviewer asked for, only a comment about it; the markers
+    are no change anyone can review. The file as master has it after the fix is what landed: the reviewer sees the fix
+    whole, with what master changed in that file since, which the comment says.
 - **The fix a review took kept in a marker of Branch Deck**, or told by the commits of the head alone (a patch-id or a
   subject match).
   - *Why not:* a marker is the second truth again; the commits of the head say nothing of a fix that doesn't apply,

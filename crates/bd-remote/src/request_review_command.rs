@@ -130,9 +130,23 @@ pub struct ShownExtended {
   pub fixes: Vec<String>,
   /// Its head now, the fixes that applied on top of its commits; `null` with `--dry-run`
   pub head: Option<String>,
-  /// The fixes, by robot id, that don't apply on its commits: a comment names each, its head keeps what applied before
+  /// The fixes, by robot id, that don't apply on its commits (a commit of one that conflicts has no commit of master of
+  /// its identity): a comment names each, its head stays where the fix found it, and the later fixes apply all the same
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub not_applied: Vec<String>,
+  /// The fixes whose commits conflicted on its commits and took the files they conflict in as master has them after the
+  /// fix: a comment names each with those files
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub took_files: Vec<ShownTookFiles>,
+}
+
+/// A fix whose commits took the files they conflict in from what landed them on master
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ShownTookFiles {
+  /// The merged Safe Push of the fix
+  pub robot: String,
+  /// The files, as master has them after the fix
+  pub files: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -489,6 +503,7 @@ fn shown_review_request(context: &RepoContext, args: &RequestReviewArgs, environ
       fixes: fixes.iter().map(|fix| fix.robot.clone()).collect(),
       head: None,
       not_applied: Vec::new(),
+      took_files: Vec::new(),
     }),
     _ => None,
   });
@@ -531,6 +546,14 @@ fn shown_review_request(context: &RepoContext, args: &RequestReviewArgs, environ
   {
     extended.head = Some(extension.head.clone());
     extended.not_applied = run.not_applied.iter().map(|fix| fix.robot.clone()).collect();
+    extended.took_files = run
+      .taken
+      .iter()
+      .map(|taken| ShownTookFiles {
+        robot: taken.fix.robot.clone(),
+        files: taken.files.clone(),
+      })
+      .collect();
   }
   if let Some(created) = &run.created {
     output.pull_request = ReviewedPullRequest {

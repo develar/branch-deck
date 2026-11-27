@@ -1,6 +1,7 @@
 use crate::shown::{
-  CLOSED_ELSEWHERE_DELAY, ShowCandidates, close_comment, close_refusal, closed_elsewhere, closed_remains, fix_conflict_comment, is_shown, landed_by_content, landed_record,
-  landing_robot, pending_fixes, recorded_landed, recorded_reviewers, review_state, reviewers_record, show_candidates, shown_news, shown_review, state_now, with_record,
+  CLOSED_ELSEWHERE_DELAY, ShowCandidates, close_comment, close_refusal, closed_elsewhere, closed_remains, fix_conflict_comment, fix_taken_comment, is_shown, landed_by_content,
+  landed_record, landing_robot, pending_fixes, recorded_landed, recorded_reviewers, review_state, reviewers_record, show_candidates, shown_news, shown_review, state_now,
+  with_record,
 };
 use domain_types::code_owners::{GroupMember, OwnerGroup};
 use domain_types::fixtures::{pull_request, robot};
@@ -225,6 +226,24 @@ fn the_record_of_the_fixes_it_took_goes_beside_the_reviewers_and_keeps_the_text(
   assert_eq!(
     fix_conflict_comment("0123456789abcdef", "https://patronus/robot/r2"),
     "Landed a follow-up as 0123456789; it does not apply on this review's commits: https://patronus/robot/r2"
+  );
+}
+
+#[test]
+fn the_comment_of_a_fix_that_took_files_names_them_as_a_list_of_names_does() {
+  let url = "https://patronus/robot/r2";
+  assert_eq!(
+    fix_taken_comment("0123456789abcdef", &logins(&["auth.rs"]), url, "master"),
+    "Landed a follow-up as 0123456789; `auth.rs` also shows what master changed in it after this review: https://patronus/robot/r2"
+  );
+  assert_eq!(
+    fix_taken_comment("0123456789abcdef", &logins(&["a", "b", "c", "d"]), url, "main"),
+    "Landed a follow-up as 0123456789; `a`, `b`, `c` and `d` also show what main changed in them after this review: https://patronus/robot/r2"
+  );
+  // from five on the first three and the count
+  assert_eq!(
+    fix_taken_comment("0123456789abcdef", &logins(&["a", "b", "c", "d", "e"]), url, "master"),
+    "Landed a follow-up as 0123456789; `a`, `b`, `c` and 2 more also show what master changed in them after this review: https://patronus/robot/r2"
   );
 }
 

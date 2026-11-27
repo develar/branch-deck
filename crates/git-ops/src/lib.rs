@@ -78,6 +78,8 @@
 //! - `trial_rebase`: the rebase of a branch onto the target tip that Patronus runs, tried on objects only
 //! - `rebuilt_branch`: whether branches that moved since their push are the pushed commits rebuilt onto another base,
 //!   which a start lands as it pushed them
+//! - `fix_replay`: the fixes of a shown review replayed onto its head, a commit that conflicts taking the files git
+//!   cannot merge from the commit that landed it
 //!
 //! The network:
 //! - `remote_command`: the policy of every git that talks to a remote (push, fetch, `git lfs`), whose variants with
@@ -116,6 +118,7 @@ pub mod commit_writer;
 pub mod conflict_analysis;
 pub mod copy_commit;
 pub mod crlf;
+pub mod fix_replay;
 pub mod generated;
 pub mod history;
 #[cfg(unix)]
