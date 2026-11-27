@@ -86,7 +86,8 @@ pub struct RequestReviewOutput {
   /// `unknown`); `null` with `--reviewer`, which doesn't ask Patronus
   pub readiness: Option<String>,
   /// Whom it asks: the `--reviewer` logins, else one suggested code owner of each missing group nobody is asked for
-  /// yet; with `--dry-run`, whom it would ask
+  /// yet; with `--dry-run`, whom it would ask. Of the draft of a review after landing that asks nobody yet (a mark,
+  /// `--reviewer` before the branch landed), whom its body records, whom its open asks
   pub reviewers: Vec<PersonSummary>,
   /// The branches `--push` pushed first, root first; with `--dry-run`, what it would push; absent when the remote has
   /// them
@@ -533,12 +534,21 @@ fn shown_review_request(context: &RepoContext, args: &RequestReviewArgs, environ
     (plan, None, true)
   };
   let marked = plan.effects.iter().any(|effect| matches!(effect, PlannedEffect::CreateShownReview { draft: true, .. }));
+  // whom it asks; of a draft whose open asks them later (a mark, a reviewer added before the branch landed), whom its
+  // body records
   let asked: Vec<String> = plan
     .effects
     .iter()
     .find_map(|effect| match effect {
       PlannedEffect::RequestReviewers { reviewers, .. } | PlannedEffect::CreateShownReview { reviewers, .. } => Some(reviewers.clone()),
       _ => None,
+    })
+    .or_else(|| {
+      let draft = read.review.as_ref().is_some_and(|review| review.pull_request.is_draft);
+      plan.effects.iter().filter(|_| draft).find_map(|effect| match effect {
+        PlannedEffect::RecordShown { reviewers, .. } => Some(reviewers.clone()),
+        _ => None,
+      })
     })
     .unwrap_or_default();
   let landed = plan.effects.iter().find_map(|effect| match effect {

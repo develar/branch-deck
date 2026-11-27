@@ -149,11 +149,16 @@ fn the_draft_opens_before_the_start_its_reviewers_are_asked_once_it_merged_and_i
     reviewers[0].state = ReviewerState::Approved;
     reviewers[0].requested = false;
   });
+  // the dry run names the branches it would delete and deletes nothing, the close names those it deleted
+  let (exit_code, output) = bd(&environment, &["close-review", "auth", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output["closed"].clone(), output["deleted"].clone()), (json!(false), json!([HEAD, BASE])));
+  assert_eq!(space.remote_tip(HEAD), tip);
   let (exit_code, output) = bd(&environment, &["close-review", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
-    (output["state"].clone(), output["approved_by"].clone(), output["closed"].clone()),
-    (json!("approved"), json!(["alice"]), json!(true))
+    (output["state"].clone(), output["approved_by"].clone(), output["closed"].clone(), output["deleted"].clone()),
+    (json!("approved"), json!(["alice"]), json!(true), json!([HEAD, BASE]))
   );
   let state = repository.state();
   assert_eq!(state.pulls[0].pull_request.state, domain_types::pull_request::PullRequestState::Closed);
@@ -311,4 +316,30 @@ fn a_mark_before_landing_opens_by_what_lands_the_branch_and_never_by_an_older_ro
   let pull = repository.state().pulls[0].pull_request.clone();
   assert!(!pull.is_draft);
   assert_eq!(asked(&pull), [("alice", true)]);
+}
+
+/// `brd request-review auth --reviewer bob` of the marked draft of auth, which nothing landed yet, records bob beside
+/// alice in its body and asks nobody: it names both in `reviewers`, whom its open asks
+#[test_log::test]
+fn a_reviewer_added_to_a_draft_before_the_landing_is_recorded_and_named() {
+  let (space, repository, environment) = space();
+  let (exit_code, output) = bd(&environment, &["request-review", "auth", "--after-landing"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_draft_at_tip(&space, &repository);
+
+  let (exit_code, output) = bd(&environment, &["request-review", "auth", "--reviewer", "bob"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (output["reviewers"].clone(), output["requested"].clone(), output["shown"]["state"].clone()),
+    (
+      json!([{"login": "alice", "full_name": null}, {"login": "bob", "full_name": null}]),
+      json!([]),
+      json!("draft")
+    )
+  );
+  let state = repository.state();
+  let draft = &state.pulls[0];
+  assert!(draft.pull_request.is_draft);
+  assert_eq!(draft.pull_request.reviewers, []);
+  assert!(draft.body.contains("<!-- branch-deck show reviewers: alice bob -->"), "{}", draft.body);
 }

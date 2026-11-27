@@ -532,6 +532,8 @@ pub struct ShownRun {
   /// The fixes whose commits took the files they conflict in from what landed them, which a comment names with those
   /// files (`ExtendReview`)
   pub taken: Vec<TakenFix>,
+  /// The branches of the review it deleted, those the remote had (`DeleteReview`, `DeleteReviewAt`)
+  pub deleted: Vec<String>,
 }
 
 /// A fix of a shown review whose commits took the files they conflict in from what landed them on the target
@@ -706,7 +708,8 @@ async fn shown_effect(services: &ShownServices, effect: &PlannedEffect, run: &mu
       .map_err(github_error(format!("Cannot record the reviewers and the fixes of pull request #{number}"))),
     PlannedEffect::DeleteReview { branch } => {
       let (git, path, remote, prefix, branch) = (services.git.clone(), path.to_owned(), services.remote.clone(), services.prefix.clone(), branch.clone());
-      blocking(move || delete_review(&git, &path, &remote, &prefix, &branch).map(|_| ())).await
+      run.deleted = blocking(move || delete_review(&git, &path, &remote, &prefix, &branch)).await?;
+      Ok(())
     }
     PlannedEffect::DeleteReviewAt { branch, head, base } => {
       let (git, path, remote, prefix, branch) = (services.git.clone(), path.to_owned(), services.remote.clone(), services.prefix.clone(), branch.clone());
@@ -714,13 +717,14 @@ async fn shown_effect(services: &ShownServices, effect: &PlannedEffect, run: &mu
         head: head.clone(),
         base: base.clone(),
       };
-      blocking(move || delete_review_at(&git, &path, &remote, &prefix, &branch, &at).map(|_| ())).await
+      run.deleted = blocking(move || delete_review_at(&git, &path, &remote, &prefix, &branch, &at)).await?;
+      Ok(())
     }
     other => Err(ApiError::internal(format!("A shown review makes no {other:?}"))),
   }
 }
 
-async fn blocking(work: impl FnOnce() -> anyhow::Result<()> + Send + 'static) -> Result<(), ApiError> {
+async fn blocking<T: Send + 'static>(work: impl FnOnce() -> anyhow::Result<T> + Send + 'static) -> Result<T, ApiError> {
   tokio::task::spawn_blocking(in_current_span(work))
     .await
     .map_err(|error| ApiError::internal(format!("The step of the shown review failed: {error}")))?

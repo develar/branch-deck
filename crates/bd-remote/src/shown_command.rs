@@ -216,8 +216,9 @@ pub struct CloseReviewOutput {
   pub comment: String,
   /// It was closed and its branches deleted; false with `--dry-run`
   pub closed: bool,
-  /// Of a review closed on GitHub: its branches the remote still has at the tips of its pull request, which it deleted
-  /// (with `--dry-run`: would delete)
+  /// The branches of the review it deleted: of an open one, those the remote had; of one closed on GitHub, those the
+  /// remote still had at the tips of its pull request. With `--dry-run`, those it would delete: of an open one, its head
+  /// and the base the remote has
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub deleted: Vec<String>,
 }
@@ -277,10 +278,14 @@ pub fn close_review(context: &RepoContext, args: &CloseReviewArgs, environment: 
     return Err(CliError::from(refusal));
   }
   if args.dry_run {
+    // an open review has its head; its base, unless the remote lost it (`ShownReview::base_missing`)
+    let (head, base) = review_branch_names(&context.prefix, &args.branch).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
+    output.deleted = std::iter::once(head).chain((!review.base_missing).then_some(base)).collect();
     return Ok(output);
   }
-  run_recorded(context, &read.services, &plan)?;
+  let run = run_recorded(context, &read.services, &plan)?;
   output.closed = true;
+  output.deleted = run.deleted;
   Ok(output)
 }
 
@@ -320,7 +325,8 @@ fn close_closed(context: &RepoContext, args: &CloseReviewArgs, read: &ShownRead)
   if args.dry_run {
     return Ok(output);
   }
-  run_recorded(context, &read.services, &plan)?;
+  let run = run_recorded(context, &read.services, &plan)?;
   output.closed = true;
+  output.deleted = run.deleted;
   Ok(output)
 }

@@ -2225,9 +2225,10 @@ own Safe Push of the branch (`brd robot` names the review it `extends`); once me
 has, asks the reviewers again and records the fix in the body (`shown.extended`: `fixes`, `head`; `took_files`, a fix
 whose commit conflicts on its commits and takes the files as master has them after the fix, named in a comment;
 `not_applied`, a fix master has under no identity of its commit, named in a comment instead); `--reviewer` adds reviewers to the review
-and its record. While a fix lands the review is `extending`, nobody's move. `brd close-review <branch> [--allow-unapproved]
+and its record; of a draft nothing landed yet it only records them (`reviewers` naming whom its body records, whom its
+open asks; `requested` empty). While a fix lands the review is `extending`, nobody's move. `brd close-review <branch> [--allow-unapproved]
 [--dry-run]` closes it once every reviewer it asked approved (`state`, `approved_by`, `comment`, `closed`) and deletes
-its branches; of a review closed on GitHub it deletes the branches the remote still has at the tips of its pull request
+its branches, those the remote has (`deleted`; `--dry-run` names those it would delete); of a review closed on GitHub it deletes the branches the remote still has at the tips of its pull request
 (`state: closed`, `deleted`), as the app does an hour after such a close. Refusals (exit 4): `approvals_required`, `pull_request_open` (its review
 after landing is open already), `show_lands_stack`, `show_needs_patronus`, `no_reviewer` (the start and the mark);
 `no_shown_review` (nothing landed it since its draft opened, or no open review); `review_not_approved` (the close;

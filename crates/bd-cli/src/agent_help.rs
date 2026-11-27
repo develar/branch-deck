@@ -857,7 +857,8 @@ landed it yet. A branch with a shown review needs no flag: `brd request-review <
 the branch landed by its own Safe Push, replays the fix onto the head of the review, asks its reviewers again and
 records the fix in its body (`shown.extended`: `fixes`, `head`; `took_files`: a fix whose commit conflicts on its
 commits takes the files as master has them after the fix, which a comment names; `not_applied`: a fix master has under
-no identity of its commit, which a comment names instead, the next fixes applied all the same); a repeat adds nothing. --reviewer adds reviewers to it.
+no identity of its commit, which a comment names instead, the next fixes applied all the same); a repeat adds nothing. --reviewer adds reviewers to it;
+of a draft nothing landed yet, it only records them in its body (`reviewers`: whom its open asks; `requested` empty).
 ";
 
 /// `brd close-review --help`: the close of a shown review
@@ -865,7 +866,8 @@ pub const CLOSE_REVIEW_HELP: &str = "\
 It closes the shown review of a branch (a review after landing, which a Safe Push opened) with a comment that
 names who approved it, and deletes its branches `{prefix}/review/<branch>/head` and `/base`. The app
 closes one by itself once every reviewer it asked approved. `brd close-review <branch>` prints `number`, `url`,
-`state`, `approved_by`, `comment`, `closed`; --dry-run closes nothing. Refusals, nothing closed:
+`state`, `approved_by`, `comment`, `closed`, `deleted` (the branches it deleted); --dry-run closes nothing and names in
+`deleted` what it would delete. Refusals, nothing closed:
 `review_not_approved` (exit 4): a reviewer it asked has not approved (the message names who); --allow-unapproved
 closes it anyway, only when the user says so. Of a review closed on GitHub it deletes the branches the remote still
 has at the tips of its pull request (`state: closed`, `deleted`). `no_shown_review` (exit 4): the branch has no open
