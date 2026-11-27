@@ -14,7 +14,7 @@
 //! (`read_pull_request_head`), and a new pull request (`pull_request_create.rs`).
 
 use crate::pull_requests::{GitHubWriteError, visible_data};
-use domain_policy::shown::with_record;
+use domain_policy::shown::{has_shown_prefix, shown_title, with_record};
 
 use domain_types::pull_request::{AsyncMerge, AsyncMergeStatus, MergeMethod, PullRequestReviewEvent, PullRequestStack, RefusedReviewer, RequestedReviewers};
 use git_ops::revs::is_object_id;
@@ -66,8 +66,9 @@ pub async fn close_pull_request(github: &GitHubService, repository_path: &str, r
 
 /// The records of the body of the shown review `number` name `reviewers` and the fixes it took (`landed`), with the line
 /// of the pull request `reviewed_in` where the branch was reviewed before it landed, the rest of its text as GitHub has it
-/// now (`domain_policy::shown::with_record`): one `GET pulls/<n>`, then a `PATCH` of the body
-/// only when it changes; whether it changed
+/// now (`domain_policy::shown::with_record`), and its title starts with `[post-merge review]` (one opened before Branch
+/// Deck titled them so gets it, `domain_policy::shown::shown_title`): one `GET pulls/<n>`, then one `PATCH` of what
+/// changes, the body, the title or both, only when anything does; whether it changed
 #[instrument(skip(github))]
 pub async fn record_shown_review(
   github: &GitHubService,
@@ -86,10 +87,17 @@ pub async fn record_shown_review(
       let pull_request: GhPullRequestBody = client.get(&token, path, &[]).await?;
       let body = pull_request.body.unwrap_or_default();
       let recorded = with_record(&body, reviewers, landed, reviewed_in);
-      if recorded == body {
+      let mut write = serde_json::Map::new();
+      if recorded != body {
+        write.insert("body".to_owned(), recorded.into());
+      }
+      if let Some(title) = pull_request.title.filter(|title| !has_shown_prefix(title)) {
+        write.insert("title".to_owned(), shown_title(&title).into());
+      }
+      if write.is_empty() {
         return Ok(false);
       }
-      client.patch::<IgnoredAny, _>(&token, path, &serde_json::json!({"body": recorded})).await?;
+      client.patch::<IgnoredAny, _>(&token, path, &serde_json::Value::Object(write)).await?;
       Ok(true)
     })
     .await
@@ -99,6 +107,7 @@ pub async fn record_shown_review(
 /// The text of a pull request of the REST API
 #[derive(Debug, Deserialize)]
 struct GhPullRequestBody {
+  title: Option<String>,
   body: Option<String>,
 }
 

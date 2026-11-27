@@ -668,8 +668,8 @@ branches included, lands in one robot with --whole-stack (from any branch of it;
 from the stack branch of its top-level root (`whole_stack.source`; a straight chain starts from its last branch),
 `lands` names every branch, and its pull request is the stack's own, where the approvals of the whole stack count.
 --request-review (show of ship/show/ask) lands the branch now and asks for its review after landing: before the
-start it pushes `{prefix}/review/<branch>/head` and its fork point `/base` and opens a draft pull request between them
-(`shown`: `reviewers`, `head`, `base`, `number`); the reviewers: --reviewer, else one available member of each owner
+start it pushes `{prefix}/review/<branch>/head` and its fork point `/base` and opens a draft pull request between them,
+titled `[post-merge review] <its title>` (`shown`: `reviewers`, `head`, `base`, `number`); the reviewers: --reviewer, else one available member of each owner
 group of the changed paths (`shown.groups`). A branch with an open pull request starts from its comment, its review
 after landing following the one in the pull request. Its refusals: `approvals_required` (Patronus requires the code
 owners' approval first: ask with --create-pull-request), `pull_request_open` (its review after landing is open

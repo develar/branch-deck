@@ -344,7 +344,7 @@ async fn lists_pull_requests_of_the_push_remote_repository() {
 #[test(tokio::test)]
 async fn the_shown_reviews_are_the_heads_of_the_review_namespace_with_the_reviewers_their_body_records() {
   let node = |number: u32, head: &str, owner: &str, state: &str, body: &str| {
-    serde_json::json!({"number": number, "title": "Add auth", "url": format!("https://github.com/JetBrains/ultimate/pull/{number}"), "state": state,
+    serde_json::json!({"number": number, "title": "[post-merge review] IJPL-1 Add auth", "url": format!("https://github.com/JetBrains/ultimate/pull/{number}"), "state": state,
       "isDraft": false, "headRefName": head, "headRefOid": "1111", "baseRefName": "develar/review/auth/base", "headRepositoryOwner": {"login": owner},
       "isCrossRepository": false, "updatedAt": "2026-10-14T09:30:00Z", "author": {"login": "me"}, "body": body,
       "latestReviews": {"nodes": [{"author": {"login": "alice"}, "state": "APPROVED"}]}})
@@ -361,6 +361,15 @@ async fn the_shown_reviews_are_the_heads_of_the_review_namespace_with_the_review
   let review = &result.shown_reviews["auth"];
   assert_eq!((review.pull_request.number, review.reviewers.as_slice()), (12, &["alice".to_owned()][..]));
   assert_eq!(review.state, domain_types::pull_request::ShownState::Approved { by: vec!["alice".to_owned()] });
+  // titled with the prefix on GitHub: read without it, its issue key leading
+  assert_eq!(
+    (
+      review.pull_request.title.as_str(),
+      review.pull_request.title_lead.as_ref().map(|lead| lead.key.as_str()),
+      review.prefix_missing
+    ),
+    ("IJPL-1 Add auth", Some("IJPL-1"), false)
+  );
 }
 
 /// The closed shown reviews come from a search of their own in the same query, asked only with `closed`: a head of
@@ -398,6 +407,9 @@ async fn the_closed_shown_reviews_are_a_search_of_their_own_with_what_the_remote
     }])
   );
   assert!(result.shown_reviews["login"].base_missing);
+  // opened before Branch Deck titled them with the prefix: its next record writes it
+  assert!(result.shown_reviews["login"].prefix_missing);
+  assert_eq!(result.shown_reviews["login"].pull_request.title, "Add login");
   let request = &fake.requests_to("POST", "/graphql")[0];
   assert_eq!(request.json()["variables"]["withClosed"], true);
   assert!(

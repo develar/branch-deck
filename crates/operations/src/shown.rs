@@ -29,6 +29,10 @@
 //!   still has them at the tips of its pull request, leased on them (`sync_core::review_head::delete_review_at`); a
 //!   branch gone or moved since, a newer review of the branch, stays.
 //!
+//! Every opening of one titles it `[post-merge review] <the title of the branch>` (`shown_pull_request`), so a reviewer
+//! tells it in any list of GitHub; one opened before gets the prefix with the next record of its body (its open, its
+//! extend, `record_shown_review`). The page shows the title without it, beside the badge.
+//!
 //! Each holds the fields of the pull request it writes and the branches of the review (`shown_request`); its effects
 //! run in their order (`run_shown`), the first that fails skips the rest. The app runs them in the session of the
 //! repository (`execute_shown`), `brd` over its one-shot reads with the same plans and the same run. A run of the app
@@ -44,7 +48,7 @@ use crate::robot_start::github_failure;
 use crate::witness::plan_changed;
 use domain_policy::shown::{
   ContentLanding, LandedBy, LandedHead, close_comment, close_refusal, closed_remains, fix_conflict_comment, fix_taken_comment, landed_head, mark_land, mark_refusals,
-  pending_fixes, review_state, reviewers_record, shown_review,
+  pending_fixes, review_state, reviewers_record, shown_review, shown_title,
 };
 use domain_types::branch_names::{baseline_on_remote, review_branch_names, to_final_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
@@ -93,6 +97,28 @@ pub fn shown_body(body: &str, reviewers: &[String], target: &str) -> String {
   text
 }
 
+/// The pull request of the shown review of `branch` that `CreateShownReview` opens, the one place every opening of one
+/// is written (a mark, a Safe Push with one, one of a branch that landed): from its head into its base, titled
+/// `shown_title` of the title of `text`, its body `shown_body` recording `reviewers`, whom it asks unless a draft
+///
+/// # Errors
+/// A branch whose review branches can't be named
+pub fn shown_pull_request(repository_path: &str, prefix: &str, branch: &str, text: &ShownText, reviewers: &[String], draft: bool) -> Result<CreatePullRequestParams, ApiError> {
+  let (head, base) = review_branch_names(prefix, branch).map_err(|error| ApiError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
+  Ok(CreatePullRequestParams {
+    repository_path: repository_path.to_owned(),
+    branch_name: branch.to_owned(),
+    head,
+    base,
+    title: shown_title(&text.title),
+    body: shown_body(&text.body, reviewers, &text.target),
+    reviewers: if draft { Vec::new() } else { reviewers.to_vec() },
+    assign_self: text.assign_self,
+    wait_for_mirror: true,
+    draft,
+  })
+}
+
 /// The reviewers `asked` of a review, then those of `added` it doesn't name yet (by login, in any case)
 fn with_added(asked: &[String], added: &[String]) -> Vec<String> {
   let mut all = asked.to_vec();
@@ -111,7 +137,8 @@ fn with_added(asked: &[String], added: &[String]) -> Vec<String> {
 /// now. `added`, reviewers the user names, are asked too and recorded in its body; of a draft whose branch nothing landed
 /// yet they are only recorded, its open asks them with the others. Of a review whose base the remote lacks (reopened
 /// after its branches were deleted: GitHub restores only the head) the branches are pushed again first, the base to the
-/// fork point of its head
+/// fork point of its head. Of one whose title lacks the prefix (opened before Branch Deck titled them so,
+/// `ShownReview::prefix_missing`) an open that writes anything records its body too, which writes the prefix
 ///
 /// # Errors
 /// `no_shown_review` for a draft whose branch nothing landed yet and that is given nobody new, or one that records no
@@ -189,7 +216,10 @@ pub fn open_plan<'a>(
   }
   // at its open: where the branch was reviewed before it landed
   let reviewed_in = landed.filter(|_| pull_request.is_draft).and_then(|landed| landed.reviewed_in);
-  if reviewers.len() > review.reviewers.len() || reviewed_in.is_some() {
+  // a review opened before its title had the prefix gets it with the record (`record_shown_review`), at an open that
+  // writes anything
+  let titled = review.prefix_missing && !effects.is_empty();
+  if reviewers.len() > review.reviewers.len() || reviewed_in.is_some() || titled {
     effects.push(PlannedEffect::RecordShown {
       number,
       reviewers,
@@ -617,19 +647,7 @@ async fn shown_effect(services: &ShownServices, effect: &PlannedEffect, run: &mu
         .text
         .clone()
         .ok_or_else(|| ApiError::internal("A shown review opens with the text of its branch"))?;
-      let (head, base) = review_branch_names(&services.prefix, branch).map_err(|error| ApiError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
-      let params = CreatePullRequestParams {
-        repository_path: path.to_owned(),
-        branch_name: branch.clone(),
-        head,
-        base,
-        title: text.title,
-        body: shown_body(&text.body, reviewers, &text.target),
-        reviewers: if *draft { Vec::new() } else { reviewers.clone() },
-        assign_self: text.assign_self,
-        wait_for_mirror: true,
-        draft: *draft,
-      };
+      let params = shown_pull_request(path, &services.prefix, branch, &text, reviewers, *draft)?;
       let created = create_pull_request(github, repository, &params)
         .await
         .map_err(github_error(format!("Cannot open the shown review of {branch}")))?;
@@ -1029,6 +1047,7 @@ pub fn after_run(mut review: ShownReview, plan: &Plan, done: &ShownRun) -> Shown
       PlannedEffect::RecordShown { reviewers, landed, .. } => {
         review.reviewers.clone_from(reviewers);
         review.landed.clone_from(landed);
+        review.prefix_missing = false;
       }
       _ => {}
     }

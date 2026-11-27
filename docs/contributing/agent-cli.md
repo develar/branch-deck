@@ -2206,7 +2206,8 @@ approvals of the code owners in that pull request, so one that asks no member of
 Show of ship/show/ask ([Shown Reviews](../../openspec/specs/branch/shown-reviews/spec.md)): `brd safe-push <branch>
 --request-review [--reviewer LOGIN]…` lands the branch and, before the robot starts, pushes `{prefix}/review/<branch>/head`
 and its fork point `/base` and opens a draft pull request between them (`shown`: `reviewers`, `groups`, `head`, `base`,
-`number`, `created`). Without `--reviewer` it asks one available member of each owner group of the changed paths, from
+`number`, `created`), titled `[post-merge review] <the title of the branch>` so that a reviewer tells it on GitHub (one
+opened before gets the prefix with the next record of its body). Without `--reviewer` it asks one available member of each owner group of the changed paths, from
 the CodeOwners service with the Space token of Patronus. A branch with an open pull request starts from its comment: the
 review after landing follows the one in the pull request. `brd request-review <branch> --after-landing` before the
 branch landed marks it ahead of time (`shown.marked`): its branches pushed at its tip and fork point, the draft opened,

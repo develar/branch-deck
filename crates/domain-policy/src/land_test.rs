@@ -1490,6 +1490,7 @@ fn a_safe_push_with_a_review_after_landing_opens_its_draft_before_the_start_and_
           state: domain_types::pull_request::ShownState::Draft { landing: false },
           created_at: 0,
           base_missing: false,
+          prefix_missing: false,
         },
       )]
       .into(),
@@ -1515,6 +1516,7 @@ fn marked(branch: &str, reviewers: &[&str]) -> (String, domain_types::pull_reque
       state: domain_types::pull_request::ShownState::Draft { landing: false },
       created_at: 0,
       base_missing: false,
+      prefix_missing: false,
     },
   )
 }

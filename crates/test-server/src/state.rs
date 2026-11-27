@@ -469,11 +469,12 @@ pub struct LinkablePull {
 
 impl ReviewRequestsFixture {
   /// The fixture with the title of every pull request split at its issue key and a review after landing told by its
-  /// base, as the reader of GitHub reads them (`remote_facts::review_requests`): the session takes the fixture in as
-  /// GitHub's answer
+  /// base, its title without the prefix, as the reader of GitHub reads them (`remote_facts::review_requests`): the
+  /// session takes the fixture in as GitHub's answer
   #[must_use]
   pub fn with_title_leads(mut self) -> Self {
     let lead = |request: &mut domain_types::review_request::ReviewRequest| {
+      request.title = domain_policy::shown::listed_title(&request.title, &request.base_ref_name).to_owned();
       request.title_lead = sync_utils::issue_pattern::issue_lead(&request.title);
       request.shown = domain_policy::shown::is_shown(&request.base_ref_name);
     };

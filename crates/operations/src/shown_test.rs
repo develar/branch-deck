@@ -497,7 +497,7 @@ async fn the_extend_of_a_shown_review_against_origin_and_github() {
   // opened on the first landing, alice requested changes
   let review = shown(false, vec![reviewer("alice", ReviewerState::ChangesRequested, false)]);
   let fake_repository = github_of(&repo, &review);
-  let services = services_of(&repo, &fake_repository).await;
+  let (services, log) = services_with_log(&repo, &fake_repository).await;
   let robot_of = |id: &str, source: &str| PatronusRobot {
     id: id.to_owned(),
     url: format!("https://patronus/robot/{id}"),
@@ -519,6 +519,13 @@ async fn the_extend_of_a_shown_review_against_origin_and_github() {
   );
   assert!(pull.body.starts_with("Adds auth."), "{}", pull.body);
   assert_eq!(pull.comments.len(), 0);
+  // opened before its title had the prefix: the record writes it, in the one PATCH of the body
+  assert_eq!(pull.pull_request.title, "[post-merge review] Pull request of auth");
+  let writes = pull_writes(&log);
+  assert_eq!(
+    writes.iter().map(|write| (write.get("body").is_some(), write["title"].as_str())).collect::<Vec<_>>(),
+    [(true, Some("[post-merge review] Pull request of auth"))]
+  );
   let extended = after_run(review.clone(), &plan, &run);
   assert_eq!(
     (extended.pull_request.head_ref_oid.as_str(), extended.landed.clone(), extended.state.clone()),
@@ -590,6 +597,55 @@ async fn the_extend_of_a_shown_review_against_origin_and_github() {
     ]
   );
   assert_eq!(recorded_landed(&state.pulls[0].body), vec![fix, second, third]);
+  // prefixed since: no later record writes the title again
+  let writes = pull_writes(&log);
+  assert!(writes.len() > 1, "{writes:?}");
+  assert!(writes[1..].iter().all(|write| write.get("title").is_none()), "{writes:?}");
+  assert_eq!(state.pulls[0].pull_request.title, "[post-merge review] Pull request of auth");
+}
+
+/// A review after landing opened before its title had the prefix: its open records it with the prefix (one PATCH of the
+/// title, its body as it was), once; one with the prefix opens with no record and no PATCH
+#[tokio::test(flavor = "multi_thread")]
+async fn an_open_of_a_review_without_the_prefix_writes_it_once_and_a_prefixed_one_writes_no_title() {
+  let (repo, _) = repo_on_origin();
+  let landed = repo.create_commit("(auth) Add auth", "auth.txt", "auth\n");
+  let draft = ShownReview {
+    prefix_missing: true,
+    ..shown(true, Vec::new())
+  };
+  let fake_repository = github_of(&repo, &draft);
+  let (services, log) = services_with_log(&repo, &fake_repository).await;
+  let robot = merged(&landed);
+  let plan = open_plan(&draft, "auth", Some(&by_robot(&robot)), [&robot], &[]).unwrap();
+  assert_eq!(
+    plan.effects.last(),
+    Some(&PlannedEffect::RecordShown {
+      number: 12,
+      reviewers: logins(&["alice", "bob"]),
+      landed: Vec::new(),
+      reviewed_in: None
+    })
+  );
+  let run = run_done(&services, &plan).await;
+  let state = fake_repository.state();
+  assert_eq!(state.pulls[0].pull_request.title, "[post-merge review] Pull request of auth");
+  assert_eq!(pull_writes(&log), [serde_json::json!({"title": "[post-merge review] Pull request of auth"})]);
+  assert!(!after_run(draft.clone(), &plan, &run).prefix_missing);
+
+  // a draft with the prefix: the same open records nothing, so it writes no title
+  let prefixed = shown(true, Vec::new());
+  let plan = open_plan(&prefixed, "auth", Some(&by_robot(&robot)), [&robot], &[]).unwrap();
+  assert!(!plan.effects.iter().any(|effect| matches!(effect, PlannedEffect::RecordShown { .. })), "{:?}", plan.effects);
+  // nothing to do for one ready that asked everyone: no record either
+  let ready = ShownReview {
+    prefix_missing: true,
+    ..shown(
+      false,
+      vec![reviewer("alice", ReviewerState::Approved, false), reviewer("bob", ReviewerState::Approved, false)],
+    )
+  };
+  assert_eq!(open_plan(&ready, "auth", None, NOBODY, &[]).unwrap().effects, []);
 }
 
 /// A repository on a bare origin whose master it fetched: the commit of it
@@ -634,6 +690,20 @@ fn github_of(repo: &TestRepo, review: &ShownReview) -> Arc<FakeGitHubRepository>
 
 /// The services of the runs of a shown review of `repo` against the fake of GitHub `repository`
 async fn services_of(repo: &TestRepo, repository: &Arc<FakeGitHubRepository>) -> ShownServices {
+  services_with_log(repo, repository).await.0
+}
+
+/// The bodies of the `PATCH pulls/12` the fake of GitHub `fake` got, in order
+fn pull_writes(fake: &FakeGitHub) -> Vec<serde_json::Value> {
+  fake
+    .requests_to("PATCH", "/repos/acme/monorepo/pulls/12")
+    .iter()
+    .map(github::fake_github::FakeRequest::json)
+    .collect()
+}
+
+/// `services_of`, with the fake of GitHub whose requests it logs
+async fn services_with_log(repo: &TestRepo, repository: &Arc<FakeGitHubRepository>) -> (ShownServices, Arc<FakeGitHub>) {
   let fake = Arc::new(FakeGitHub::with_repository(Arc::clone(repository)));
   let url = github::fake_github::serve(Arc::clone(&fake)).await;
   let tokens = github::token::TokenChain::new(github::token::TokenSources::fixed("t"), git_executor::git_command_executor::GitCommandExecutor::new());
@@ -641,7 +711,7 @@ async fn services_of(repo: &TestRepo, repository: &Arc<FakeGitHubRepository>) ->
     github::client::GitHubClient::with_urls(&url, &url, "Branch Deck test"),
     tokens,
   ));
-  ShownServices {
+  let services = ShownServices {
     git: repo.git_executor().clone(),
     repository_path: repo.path_str().to_owned(),
     prefix: "user".to_owned(),
@@ -653,7 +723,8 @@ async fn services_of(repo: &TestRepo, repository: &Arc<FakeGitHubRepository>) ->
       name: "monorepo".to_owned(),
     },
     text: None,
-  }
+  };
+  (services, fake)
 }
 
 /// The facts of a mark of auth by alice ahead of its landing: at its tip, the Safe Push with its review refused by
@@ -813,6 +884,9 @@ async fn a_mark_opens_its_draft_and_its_open_says_where_the_branch_was_reviewed_
   let state = fake_repository.state();
   assert_eq!(state.pulls[0].pull_request.reviewers, []);
   assert_eq!(recorded_reviewers(&state.pulls[0].body), alice);
+  // titled for a reviewer on GitHub, read without the prefix, which the badge of the page says
+  assert_eq!(state.pulls[0].pull_request.title, "[post-merge review] Add auth");
+  assert_eq!(created.pull_request.title, "Add auth");
 
   // landed by a safe-merge from #7: no push (the head is what landed), ready, alice asked, the body names #7
   let marked = ShownReview {

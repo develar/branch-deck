@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 #[expect(clippy::struct_excessive_bools, reason = "independent facts GitHub answers of the pull request, each read by its own surface")]
 pub struct ReviewRequest {
   pub number: u32,
+  /// Of a review after landing (`shown`) without `SHOWN_TITLE_PREFIX`, which its badge says
+  /// (`domain_policy::shown::listed_title`, where it is read)
   pub title: String,
   /// `title` split at the issue key it starts with, which a row mutes (`sync_utils::issue_pattern::issue_lead`); set
   /// where the session takes the request in (`review_request_facts`), absent for none

@@ -8,6 +8,8 @@ use std::collections::BTreeMap;
 #[serde(rename_all = "camelCase")]
 pub struct PullRequest {
   pub number: u32,
+  /// Of a shown review without `SHOWN_TITLE_PREFIX`, which its badge says (`domain_policy::shown::listed_title`, where
+  /// it is read)
   pub title: String,
   /// `title` split at the issue key it starts with, which a row mutes (`sync_utils::issue_pattern::issue_lead`); set
   /// where the session takes the pull request in (`pull_request_facts`), absent for none
@@ -509,7 +511,17 @@ pub struct ShownReview {
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub base_missing: bool,
+  /// Its title on GitHub lacks `SHOWN_TITLE_PREFIX` (one opened before Branch Deck titled them so): the next record of
+  /// its body (its open, its extend) writes the prefix too (`operations::shown::open_plan`)
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub prefix_missing: bool,
 }
+
+/// What starts the title of every shown review on GitHub, so that a reviewer tells it from a pull request into master
+/// in any list of GitHub (`domain_policy::shown::shown_title`); a label would need write access to create it. The page
+/// shows the title without it, beside the badge (`domain_policy::shown::listed_title`)
+pub const SHOWN_TITLE_PREFIX: &str = "[post-merge review]";
 
 /// The line of the body of a shown review that records whom it asks, an HTML comment GitHub doesn't show and that
 /// mentions nobody: `<!-- branch-deck show reviewers: alice bob -->`

@@ -46,12 +46,12 @@
 use crate::push::{Sent, send};
 use crate::registry_file::{PendingStart, RecordHandle};
 use crate::robot_start::{ApiStart, CommentStart, Commented, NoRobot, RobotWait, follow_start_comment, patronus_failure, post_start_comment, start_through_api};
-use crate::shown::shown_body;
+use crate::shown::{ShownText, shown_pull_request};
 use crate::witness::{Witness, check, plan_changed, read_refs};
 use domain_policy::github_stack::stack_writes;
 use domain_policy::holds::is_active;
 use domain_types::RemoteStatusUpdate;
-use domain_types::branch_names::{BranchKind, managed_branch_kind, review_branch_names, to_final_branch_name};
+use domain_types::branch_names::{BranchKind, managed_branch_kind, to_final_branch_name};
 use domain_types::error::{ApiError, ErrorCode, ErrorDetails};
 use domain_types::landing::{BaselinePush as PushedCopy, Confirmation, Land, LandingRefusal, PlannedEffect, StartRoute, Subject};
 use domain_types::operation::{
@@ -1839,25 +1839,19 @@ impl Run<'_> {
       Ok(text) => text,
       Err(error) => return self.fail(error),
     };
-    let (head, base) = match review_branch_names(&self.services.prefix, branch) {
-      Ok(names) => names,
-      Err(error) => return self.fail(ApiError::new(ErrorCode::InvalidArguments, format!("{error:#}"))),
+    let text = ShownText {
+      title: text.title,
+      body: text.body,
+      assign_self: text.assign_self,
+      target: self.services.target.clone(),
+    };
+    let params = match shown_pull_request(&self.services.repository_path, &self.services.prefix, branch, &text, reviewers, true) {
+      Ok(params) => params,
+      Err(error) => return self.fail(error),
     };
     let (github, repository) = match self.before_write().await {
       Ok(github) => github,
       Err(status) => return status,
-    };
-    let params = CreatePullRequestParams {
-      repository_path: self.services.repository_path.clone(),
-      branch_name: branch.to_owned(),
-      head,
-      base,
-      title: text.title,
-      body: shown_body(&text.body, reviewers, &self.services.target),
-      reviewers: Vec::new(),
-      assign_self: text.assign_self,
-      wait_for_mirror: true,
-      draft: true,
     };
     match create_pull_request(&github, &repository, &params).await {
       Ok(created) => {

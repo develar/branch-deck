@@ -1,7 +1,7 @@
 use crate::shown::{
   CLOSED_ELSEWHERE_DELAY, ContentLanding, LandedBy, LandedHead, ShowCandidates, close_comment, close_refusal, closed_elsewhere, closed_remains, fix_conflict_comment,
-  fix_taken_comment, is_shown, landed_by_content, landed_head, landed_record, landing_robot, mark_land, mark_refusals, pending_fixes, recorded_landed, recorded_reviewers,
-  review_state, reviewed_before_line, reviewers_record, show_candidates, shown_news, shown_review, state_now, with_record,
+  fix_taken_comment, has_shown_prefix, is_shown, landed_by_content, landed_head, landed_record, landing_robot, listed_title, mark_land, mark_refusals, pending_fixes,
+  recorded_landed, recorded_reviewers, review_state, reviewed_before_line, reviewers_record, show_candidates, shown_news, shown_review, shown_title, state_now, with_record,
 };
 use domain_types::code_owners::{GroupMember, OwnerGroup};
 use domain_types::fixtures::{pull_request, robot};
@@ -595,4 +595,20 @@ fn a_mark_is_refused_as_the_safe_push_with_its_review_without_what_refuses_the_r
   assert_eq!(refused, [blockers[1].clone()]);
   // its cancel says the review won't open, not that the change is in master
   assert_eq!(close_comment(&mark(), "master"), "Canceled: this review after landing won't open.");
+}
+
+#[test]
+fn the_title_of_a_shown_review_starts_with_its_prefix_once_and_the_page_shows_it_without() {
+  assert_eq!(shown_title("IJPL-1 Add auth"), "[post-merge review] IJPL-1 Add auth");
+  // already prefixed (a description that has it, a title written again): never twice
+  assert_eq!(shown_title("[post-merge review] Add auth"), "[post-merge review] Add auth");
+  assert_eq!(shown_title("[Post-Merge Review] Add auth"), "[Post-Merge Review] Add auth");
+  assert_eq!(shown_title(&shown_title("Add auth")), "[post-merge review] Add auth");
+  assert!(has_shown_prefix("  [post-merge review] Add auth"));
+  assert!(!has_shown_prefix("Add auth [post-merge review]"));
+  assert!(!has_shown_prefix("[post-merge"));
+  // the page: without the prefix of a shown review, so its issue key leads again; a pull request into master as it is
+  assert_eq!(listed_title("[post-merge review] IJPL-1 Add auth", "user/review/auth/base"), "IJPL-1 Add auth");
+  assert_eq!(listed_title("Add auth", "user/review/auth/base"), "Add auth");
+  assert_eq!(listed_title("[post-merge review] Add auth", "master"), "[post-merge review] Add auth");
 }

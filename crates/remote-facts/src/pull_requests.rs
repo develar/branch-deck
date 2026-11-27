@@ -6,7 +6,7 @@
 //! touches the repository, and every failure of a read is an availability, not an error.
 
 use anyhow::Result;
-use domain_policy::shown::shown_review;
+use domain_policy::shown::{has_shown_prefix, listed_title, shown_review};
 use domain_types::branch_names::{BranchKind, reviewed_branch, strip_branch_namespace};
 use domain_types::pull_request::{
   ChecksState, ChecksSummary, ClosedShownReview, MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestAvailability, PullRequestStackEntry, PullRequestState,
@@ -592,6 +592,7 @@ fn to_shown_reviews(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str)
       Asked::Unasked => false,
       Asked::Null | Asked::Value(_) => GhRef::tip(gh.base_ref.value()).is_none(),
     };
+    let prefix_missing = !has_shown_prefix(&gh.title);
     let Some(pull_request) = to_pull_request(gh).filter(|pull_request| pull_request.state == PullRequestState::Open) else {
       continue;
     };
@@ -601,6 +602,7 @@ fn to_shown_reviews(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str)
         ShownReview {
           base_missing,
           created_at,
+          prefix_missing,
           ..shown_review(pull_request, &body)
         },
       );
@@ -663,10 +665,12 @@ fn to_pull_request(gh: GhPullRequest) -> Option<PullRequest> {
     .flat_map(|contexts| contexts.nodes)
     .collect();
   let requests = Nodes::into_nodes(gh.review_requests).into_iter().filter_map(|node| node.requested_reviewer).collect();
+  // of a shown review without its prefix, which its badge says
+  let title = listed_title(&gh.title, &gh.base_ref_name).to_owned();
   Some(PullRequest {
     number: gh.number?,
-    title_lead: issue_lead(&gh.title),
-    title: gh.title,
+    title_lead: issue_lead(&title),
+    title,
     url: gh.url,
     state,
     is_draft: gh.is_draft,

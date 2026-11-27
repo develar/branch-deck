@@ -7002,9 +7002,10 @@ export type PlannedEffect =
 { kind: "extendReview"; branch: string; number: number; fixes: LandedFix[] } | 
 /**
  *  The record of the body of the shown review `number` names `reviewers` and the fixes it took (`landed`), the rest of
- *  its text kept (`Intent::ExtendShownReview`, a reviewer added to an open, the reviewers of a mark picked again); at
- *  its open by the merged pull request `reviewed_in` of the branch, its text says the branch was reviewed there
- *  before it landed ("Reviewed before landing in #7"), once
+ *  its text kept (`Intent::ExtendShownReview`, a reviewer added to an open, the reviewers of a mark picked again, the
+ *  open of one whose title lacks the prefix); at its open by the merged pull request `reviewed_in` of the branch, its
+ *  text says the branch was reviewed there before it landed ("Reviewed before landing in #7"), once. Its title gets
+ *  `SHOWN_TITLE_PREFIX` in the same write where it lacks it
  */
 { kind: "recordShown"; number: number; reviewers: string[]; landed: string[]; reviewedIn?: number | null };
 
@@ -7160,6 +7161,10 @@ export type ProseParagraph = {
 /**  A GitHub pull request of a virtual branch, as the search of the user's pull requests reports it */
 export type PullRequest = {
 	number: number,
+	/**
+	 *  Of a shown review without `SHOWN_TITLE_PREFIX`, which its badge says (`domain_policy::shown::listed_title`, where
+	 *  it is read)
+	 */
 	title: string,
 	/**
 	 *  `title` split at the issue key it starts with, which a row mutes (`sync_utils::issue_pattern::issue_lead`); set
@@ -8817,6 +8822,10 @@ export type ReviewReadingsView = {
  */
 export type ReviewRequest = {
 	number: number,
+	/**
+	 *  Of a review after landing (`shown`) without `SHOWN_TITLE_PREFIX`, which its badge says
+	 *  (`domain_policy::shown::listed_title`, where it is read)
+	 */
 	title: string,
 	/**
 	 *  `title` split at the issue key it starts with, which a row mutes (`sync_utils::issue_pattern::issue_lead`); set
@@ -10032,6 +10041,11 @@ export type ShownReview = {
 	 *  GitHub restores only the head; its open pushes the base again (`operations::shown::open_plan`)
 	 */
 	baseMissing?: boolean,
+	/**
+	 *  Its title on GitHub lacks `SHOWN_TITLE_PREFIX` (one opened before Branch Deck titled them so): the next record of
+	 *  its body (its open, its extend) writes the prefix too (`operations::shown::open_plan`)
+	 */
+	prefixMissing?: boolean,
 };
 
 /**  What a shown review waits for (`domain_policy::shown::review_state`) */

@@ -428,3 +428,25 @@ async fn an_answer_counts_only_after_a_request_by_name() {
   );
   assert_eq!(result.total_count, 1);
 }
+
+/// A review after landing is told by its base and read without the prefix of its title, which its badge says, its issue
+/// key leading again; a pull request into master keeps its title whole
+#[test(tokio::test)]
+async fn a_review_after_landing_is_read_without_the_prefix_of_its_title() {
+  let node = |number: u32, base: &str| {
+    serde_json::json!({"number": number, "title": "[post-merge review] IJPL-7 Sign in", "author": {"login": "alice"}, "createdAt": "2026-10-19T09:00:00Z",
+      "baseRefName": base, "viewerLatestReview": null, "timelineItems": {"nodes": []}})
+  };
+  let (result, _) = list(FakeAnswer::ok(serde_json::json!({"data": {
+    "viewer": {"login": "carol"},
+    "repository": {"viewerPermission": "READ"},
+    "search": {"issueCount": 2, "nodes": [node(1, "alice/review/sso/base"), node(2, "master")]}
+  }})))
+  .await;
+  let read: Vec<(bool, &str, Option<&str>)> = result
+    .requests
+    .iter()
+    .map(|request| (request.shown, request.title.as_str(), request.title_lead.as_ref().map(|lead| lead.key.as_str())))
+    .collect();
+  assert_eq!(read, [(true, "IJPL-7 Sign in", Some("IJPL-7")), (false, "[post-merge review] IJPL-7 Sign in", None)]);
+}

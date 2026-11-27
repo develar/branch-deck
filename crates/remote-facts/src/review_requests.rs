@@ -6,7 +6,7 @@ use crate::pull_requests::{
   GhLabel, GhReview as GhLatestReview, GhReviewRequestNode, MERGED_LABEL, Nodes, availability_of, collect_reviewers, parse_review_decision, visible_data,
 };
 use crate::reviews::{reviews_answer, reviews_query, reviews_searches};
-use domain_policy::shown::is_shown;
+use domain_policy::shown::{is_shown, listed_title};
 use domain_types::pull_request::{ChecksState, PullRequestAvailability, PullRequestState, Reviewer, ReviewerState};
 use domain_types::review_request::{AnsweredRequest, BackToYou, ReviewRequest, ReviewRequestsResult, ReviewsAsk};
 use github::service::{GitHubService, RequestKind};
@@ -250,6 +250,9 @@ pub(crate) fn request_of(number: u32, node: GhPullRequest) -> ReviewRequest {
   let review = submitted_review(&node);
   let default_branch = node.base_repository.and_then(|repository| repository.default_branch_ref).and_then(|branch| branch.name);
   let title = node.title.unwrap_or_default();
+  let base_ref_name = node.base_ref_name.unwrap_or_default();
+  // of a shown review without its prefix, which its badge says
+  let title = listed_title(&title, &base_ref_name).to_owned();
   let labels: Vec<String> = Nodes::into_nodes(node.labels).into_iter().filter_map(|label| label.name).collect();
   let state = match node.state.as_deref() {
     Some("MERGED") => PullRequestState::Merged,
@@ -267,7 +270,6 @@ pub(crate) fn request_of(number: u32, node: GhPullRequest) -> ReviewRequest {
     .and_then(|commit| commit.commit)
     .and_then(|commit| Nodes::into_nodes(commit.parents).into_iter().next())
     .and_then(|parent| parent.oid);
-  let base_ref_name = node.base_ref_name.unwrap_or_default();
   ReviewRequest {
     number,
     title_lead: issue_lead(&title),

@@ -11,6 +11,7 @@ use crate::pull_request_text::{AncestorText, CommitText, PullRequestTextInput, i
 use crate::pull_request_writes::{request_reviews, unique_logins};
 use crate::pull_requests::{GitHubWriteError, visible_data};
 use anyhow::{Result, anyhow, bail};
+use domain_policy::shown::listed_title;
 use domain_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequest, PullRequestState, Reviewer, ReviewerState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::{Description, read_descriptions};
@@ -482,10 +483,12 @@ fn to_pull_request(gh: GhCreatedPullRequest, requested: Vec<String>) -> PullRequ
   } else {
     requested
   };
+  // of a shown review without its prefix, which its badge says
+  let title = listed_title(&gh.title, &gh.base.git_ref).to_owned();
   PullRequest {
     number: gh.number,
-    title_lead: issue_lead(&gh.title),
-    title: gh.title,
+    title_lead: issue_lead(&title),
+    title,
     url: gh.html_url,
     state: PullRequestState::Open,
     is_draft: gh.draft,

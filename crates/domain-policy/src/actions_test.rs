@@ -2273,6 +2273,7 @@ fn shown_review(draft: bool) -> ShownReview {
       }
     },
     base_missing: false,
+    prefix_missing: false,
   }
 }
 

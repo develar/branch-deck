@@ -4,6 +4,8 @@
 //!
 //! - `is_shown`: a pull request is a shown review by its base, of anyone's prefix: a reviewer tells it so, and neither
 //!   its Safe Push nor a merge after an approval is offered (`ActionBlocker::Shown`);
+//! - `shown_title` and `listed_title`: its title on GitHub starts with `[post-merge review]` (`SHOWN_TITLE_PREFIX`), once,
+//!   so that a reviewer tells it in any list of GitHub; the page shows the title without it, beside its badge;
 //! - `review_state`: what it waits for, by the latest review of each reviewer it asked (the record of its body,
 //!   `recorded_reviewers`): approved once every one of them approved and none asks for changes again; GitHub's
 //!   `reviewDecision` decides nothing (it approves after the first approval, and counts a bot that requests changes),
@@ -39,7 +41,9 @@ use domain_types::branch_names::is_review_base;
 use domain_types::code_owners::OwnerGroup;
 use domain_types::landing::{FactWait, Land, LandFact, ProfileChoice, ShowRequest, Subject};
 use domain_types::patronus::{LandingAllowances, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
-use domain_types::pull_request::{ClosedShownReview, PullRequest, PullRequestState, ReviewerState, SHOWN_LANDED_MARKER, SHOWN_REVIEWERS_MARKER, ShownReview, ShownState};
+use domain_types::pull_request::{
+  ClosedShownReview, PullRequest, PullRequestState, ReviewerState, SHOWN_LANDED_MARKER, SHOWN_REVIEWERS_MARKER, SHOWN_TITLE_PREFIX, ShownReview, ShownState,
+};
 use domain_types::reason::Reason;
 use domain_types::session::{LandedSection, NewsEvent};
 use std::collections::BTreeMap;
@@ -49,6 +53,38 @@ use std::collections::BTreeMap;
 #[must_use]
 pub fn is_shown(base_ref_name: &str) -> bool {
   is_review_base(base_ref_name)
+}
+
+/// The title of a shown review on GitHub: `SHOWN_TITLE_PREFIX`, then `title`, the title of its branch; one that starts
+/// with the prefix already (in any case) stays as it is
+#[must_use]
+pub fn shown_title(title: &str) -> String {
+  if has_shown_prefix(title) {
+    title.to_owned()
+  } else {
+    format!("{SHOWN_TITLE_PREFIX} {}", title.trim_start())
+  }
+}
+
+/// `title` starts with `SHOWN_TITLE_PREFIX`, in any case
+#[must_use]
+pub fn has_shown_prefix(title: &str) -> bool {
+  title
+    .trim_start()
+    .get(..SHOWN_TITLE_PREFIX.len())
+    .is_some_and(|start| start.eq_ignore_ascii_case(SHOWN_TITLE_PREFIX))
+}
+
+/// The title of the pull request `title` into `base_ref_name` as the page shows it: of a shown review without
+/// `SHOWN_TITLE_PREFIX`, which its badge says (every reader of GitHub takes it so, before the issue key of the title is
+/// split off); of any other the title as it is
+#[must_use]
+pub fn listed_title<'a>(title: &'a str, base_ref_name: &str) -> &'a str {
+  if is_shown(base_ref_name) && has_shown_prefix(title) {
+    title.trim_start()[SHOWN_TITLE_PREFIX.len()..].trim_start()
+  } else {
+    title
+  }
 }
 
 /// The record of the body of a shown review: an HTML comment that GitHub doesn't show and that mentions nobody
@@ -155,6 +191,7 @@ pub fn shown_review(pull_request: PullRequest, body: &str) -> ShownReview {
     state,
     base_missing: false,
     created_at: 0,
+    prefix_missing: false,
   }
 }
 

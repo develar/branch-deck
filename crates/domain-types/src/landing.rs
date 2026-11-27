@@ -981,9 +981,10 @@ pub enum PlannedEffect {
   /// it is, and a comment names it once (`Intent::ExtendShownReview`)
   ExtendReview { branch: String, number: u32, fixes: Vec<LandedFix> },
   /// The record of the body of the shown review `number` names `reviewers` and the fixes it took (`landed`), the rest of
-  /// its text kept (`Intent::ExtendShownReview`, a reviewer added to an open, the reviewers of a mark picked again); at
-  /// its open by the merged pull request `reviewed_in` of the branch, its text says the branch was reviewed there
-  /// before it landed ("Reviewed before landing in #7"), once
+  /// its text kept (`Intent::ExtendShownReview`, a reviewer added to an open, the reviewers of a mark picked again, the
+  /// open of one whose title lacks the prefix); at its open by the merged pull request `reviewed_in` of the branch, its
+  /// text says the branch was reviewed there before it landed ("Reviewed before landing in #7"), once. Its title gets
+  /// `SHOWN_TITLE_PREFIX` in the same write where it lacks it
   RecordShown {
     number: u32,
     reviewers: Vec<String>,

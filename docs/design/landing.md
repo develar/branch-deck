@@ -295,7 +295,12 @@ after. A shown review is a GitHub pull request of the author that can never land
   the review fetch takes the merge base;
 - **the record is the pull request itself**: an open pull request of the author with a head under `{prefix}/review/`.
   Nothing is kept in the config or in a ref of Branch Deck; its body records the reviewers it asks in an HTML comment
-  that mentions nobody (`<!-- branch-deck show reviewers: alice -->`), so only they decide when it closes.
+  that mentions nobody (`<!-- branch-deck show reviewers: alice -->`), so only they decide when it closes;
+- **its title** is `[post-merge review] <the title of the branch>` (`domain_policy::shown::shown_title`, every opening
+  through `operations::shown::shown_pull_request`), so a reviewer tells it from a pull request into master in any list
+  of GitHub; a label would need write access to create it, and triage access only applies one. One opened before gets
+  the prefix with the next record of its body (its open, its extend), in the same write. Nothing finds it by its title,
+  and the page shows the title without the prefix, beside its badge (`listed_title`, where GitHub is read).
 
 Its life, one robot, no gate:
 

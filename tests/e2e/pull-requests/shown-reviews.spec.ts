@@ -118,6 +118,11 @@ async function bodyWrites(repo: TestRepositoryBuilder, number: number): Promise<
   return (await gitHubRequests(repo, "PATCH", "pulls", number)).map(body => (body as { body?: string }).body ?? "").filter(body => body !== "")
 }
 
+/** The titles of the writes of the fake GitHub to the pull request `number` (`PATCH pulls/<n>`), in order */
+async function titleWrites(repo: TestRepositoryBuilder, number: number): Promise<string[]> {
+  return (await gitHubRequests(repo, "PATCH", "pulls", number)).flatMap(body => (body as { title?: string }).title ?? [])
+}
+
 /** The merged robot of auth that landed the commit `head` an hour ago, before the review opened */
 function landedRobot(head: string): PatronusRobot {
   return robot(BRANCH, "landed-1", { status: "success", sourceRevision: head, startTime: 1704139200, finishTime: 1704142800 })
@@ -126,7 +131,8 @@ function landedRobot(head: string): PatronusRobot {
 /**
  * The repository of `setupShow` with the review after landing #12 of auth open: its branches on the remote (its head at
  * `head`, the head before when none), the merged robot that landed its head, the review asking alice, whose latest review
- * is `state`; listed. Returns the repository and the head of the review
+ * is `state` (`patch` of its pull request: titled "Add the token", as one opened before the prefix); listed. Returns the
+ * repository and the head of the review
  */
 async function setupOpenReview(
   page: Page,
@@ -134,12 +140,13 @@ async function setupOpenReview(
   syncAndWaitForBranches: () => Promise<void>,
   state: "requested" | "changesRequested",
   moveHead?: (repo: TestRepositoryBuilder) => Promise<string>,
+  patch: Partial<PullRequest> = {},
 ): Promise<{ repo: TestRepositoryBuilder; head: string }> {
   const repo = await setupShow(page, setupRepo, syncAndWaitForBranches, { pullRequests: availablePullRequests() })
   const pushed = (await pushReviewBranches(repo)).head
   const head = moveHead === undefined ? pushed : await moveHead(repo)
   await repo.setPatronus(availableRobots(landedRobot(head)))
-  await repo.setPullRequests(gitHub(shownReview(["alice"], [reviewer("alice", state)])))
+  await repo.setPullRequests(gitHub(shownReview(["alice"], [reviewer("alice", state)], patch)))
   await listAgain(page, repo)
   return { repo, head }
 }
@@ -263,8 +270,10 @@ test.describe("Reviews after landing", () => {
       // the draft from the head into the base, at the tip of auth and its fork point, asking nobody yet
       const [tip, forkPoint, remote] = await Promise.all([repo.revision(`user-name/virtual/${BRANCH}`), repo.revision("origin/master"), repo.getRemoteBranches()])
       expect({ head: remote[HEAD], base: remote[BASE] }).toEqual({ head: tip, base: forkPoint })
-      const created = (await gitHubRequests(repo, "POST", "pulls")) as { head: string; base: string; body: string }[]
+      const created = (await gitHubRequests(repo, "POST", "pulls")) as { head: string; base: string; title: string; body: string }[]
       expect(created.map(({ head, base }) => ({ head, base }))).toEqual([{ head: HEAD, base: BASE }])
+      // titled for a reviewer in any list of GitHub, the title of auth after the prefix
+      expect(created[0]!.title).toBe("[post-merge review] Add the token")
       expect(created[0]!.body).toContain(reviewersRecord("AlexPl292"))
       expect(await gitHubRequests(repo, "POST", "pulls", "*", "requested_reviewers")).toEqual([])
       await expectMarked(page, `Review after landing marked: once auth lands, #${number} opens and asks AlexPl292`)
@@ -285,6 +294,8 @@ test.describe("Reviews after landing", () => {
       expect(await gitHubRequests(repo, "POST", "pulls", number, "requested_reviewers")).toEqual([{ reviewers: ["AlexPl292"] }])
       expect(gitHubMutations(await repo.getGitHubLog()).map(([name]) => name)).toContain("markPullRequestReadyForReview")
       await expect(statusMark(page)).toHaveAccessibleName(`In review after landing: waits for AlexPl292 in #${number}`)
+      // titled with the prefix already: its open writes no title
+      expect(await titleWrites(repo, number)).toEqual([])
     },
   )
 
@@ -489,11 +500,13 @@ test.describe("Reviews after landing", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    // the review opened on what the robot landed; alice requested changes
-    const { repo, head } = await setupOpenReview(page, setupRepo, syncAndWaitForBranches, "changesRequested")
+    // the review opened on what the robot landed, titled with the prefix; alice requested changes
+    const { repo, head } = await setupOpenReview(page, setupRepo, syncAndWaitForBranches, "changesRequested", undefined, { title: "[post-merge review] Add the token" })
     await expect(statusMark(page)).toHaveAccessibleName("alice requested changes in #12: commit a fix as (auth) …, and its Safe Push adds it to the review")
     const returned = getYourTurnCard(page).getByTestId("returned-pull-request-row")
     await expect(returned).toHaveAttribute("data-returned-branch", BRANCH)
+    // the row says its title without the prefix: its badge says what it is
+    await expect(returned.getByTestId("returned-pull-request-title")).toHaveText("Add the token")
     // the author's own review after landing: its badge says so
     await returned.getByTestId("shown-badge").hover()
     await expect(openTooltip(page)).toHaveText("Already in master: reviewed after landing. A fix of auth goes into #12 by its own Safe Push.")
@@ -512,6 +525,8 @@ test.describe("Reviews after landing", () => {
     expect(moved).not.toBe(head)
     expect(await repo.revision(`${moved}~1`)).toBe(head)
     expect((await bodyWrites(repo, 12)).at(-1)).toContain(`<!-- branch-deck show landed: ${fixTip} -->`)
+    // its title has the prefix: the record writes no title
+    expect(await titleWrites(repo, 12)).toEqual([])
   })
 
   test("should take the file of a fix that conflicts on the commits of the review as master has it after the fix, and name it in a comment once", async ({
@@ -594,7 +609,11 @@ test.describe("Reviews after landing", () => {
       await runAndWaitForAnswer(page, "execute", () => form.getByRole("button", { name: "Request Review" }).click())
       await expect(toastWith(page, "Asked bob to review #12 after landing")).toBeVisible()
       expect(await gitHubRequests(repo, "POST", "pulls", 12, "requested_reviewers")).toEqual([{ reviewers: ["bob"] }])
-      expect((await bodyWrites(repo, 12)).at(-1)).toContain(reviewersRecord("alice", "bob"))
+      // opened before its title had the prefix: the record writes it, in the one PATCH of the body
+      expect((await gitHubRequests(repo, "PATCH", "pulls", 12)).at(-1)).toEqual({
+        body: expect.stringContaining(reviewersRecord("alice", "bob")),
+        title: "[post-merge review] Add the token",
+      })
 
       // Close Review… of the row: what it closes without, then the close with its comment, its branches deleted
       await findBranchRow(page, BRANCH).click({ button: "right" })
@@ -619,7 +638,7 @@ test.describe("Reviews after landing", () => {
     async ({ page, setupRepo, syncAndWaitForBranches }) => {
       // carol's review after landing of login: its head the commits that landed, its base their fork point, under her prefix
       const shown = reviewRequest("login", 301, 2, {
-        title: "Add the login form",
+        title: "[post-merge review] Add the login form",
         author: "carol",
         headRefName: "carol/review/login/head",
         baseRefName: "carol/review/login/base",
@@ -636,6 +655,8 @@ test.describe("Reviews after landing", () => {
       await repo.pushInTerminal("carol/review/login/head", { revision: await repo.revision("user-name/virtual/login") })
       await repo.pushInTerminal("carol/review/login/base", { revision: await repo.revision("origin/master") })
       await expect(getReviewRow(page, 301)).toBeVisible()
+      // its title without the prefix GitHub shows: the badge says what it is
+      await expect(getReviewRow(page, 301).getByTestId("review-request-title")).toHaveText("Add the login form")
       const badge = getReviewRow(page, 301).getByTestId("shown-badge")
       await expect(badge).toHaveText("Shown")
       await badge.hover()
