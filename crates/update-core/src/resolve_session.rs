@@ -17,7 +17,7 @@ use git_ops::commit_signing::{Signing, commit_signing};
 use git_ops::commit_utils::get_commits_info;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, sweep_stale_temp_refs};
 use git_ops::generated::merged_generated_files;
-use git_ops::landed_pairing::{Interdiff, LandedDrop, LandedProof, interdiffs};
+use git_ops::landed_pairing::{CandidateBy, Interdiff, LandedCandidate, LandedDrop, LandedProof, interdiffs, units_already_in};
 use git_ops::lfs::prefetch_lfs_objects;
 use git_ops::resolve_check::count_markers;
 use git_ops::revs::{Worktree, current_worktree, with_dirs_of};
@@ -78,24 +78,29 @@ pub struct RoundCommit {
   pub landed_as: Option<LandedTwin>,
 }
 
-/// A local commit that the upstream likely has, by its identity alone (`LandedCandidate`), with what tells them apart
+/// A local commit that the upstream likely has, which nothing proves (`LandedCandidate`), with what tells them apart
 #[derive(Debug, Clone)]
 pub struct LandedTwin {
-  /// The local commit; its fixups go with it
+  /// The local commit; the commits it landed with go with it
   pub commit: String,
   pub subject: String,
-  /// The upstream commit with its identity
+  /// The upstream commit with its identity, or with the changed lines of the commit and those it landed with
   pub upstream: String,
   pub upstream_subject: String,
-  /// The lines the local commit with its fixups changes and `upstream` does not, and the reverse: a drop loses
-  /// `local_only`
+  pub by: CandidateBy,
+  /// The lines the local commit with the commits it landed with changes and `upstream` does not, and the reverse: a
+  /// drop loses `local_only`
   pub interdiff: Interdiff,
+  /// By changed lines: whether the upstream has the change of the commit and those it landed with as it is
+  /// (`landed_pairing::units_already_in`); by identity always
+  pub already_upstream: bool,
 }
 
 impl LandedTwin {
-  /// The upstream commit has every line the local commit changes: a drop loses nothing, so it needs no question
+  /// The upstream commit has every line the local commit changes, and by changed lines the upstream has their change as
+  /// it is: a drop loses nothing, so it needs no question (as `--landed` decides, `update_resolve::landed_decision`)
   pub const fn is_same(&self) -> bool {
-    self.interdiff.local_only.is_empty()
+    self.interdiff.local_only.is_empty() && self.already_upstream
   }
 }
 
@@ -393,8 +398,9 @@ fn dropped_count(state: &SessionState) -> usize {
 }
 
 /// The dropped commits of `state` (with `ViewDetail::Full`) and the twins of its candidates (with `ViewDetail::Full`
-/// all of them, else only that of `round_commit`), with their subjects: one `diff-tree` of the twins and one
-/// `log --no-walk`, each only when there is something to read. A failure only leaves the reports out
+/// all of them, else only that of `round_commit`), with their subjects: one `diff-tree` of the twins, one `merge-tree` and
+/// one `rev-parse` for those by changed lines, and one `log --no-walk`, each only when there is something to read. A
+/// failure only leaves the reports out
 fn drops_and_twins(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -438,6 +444,18 @@ fn drops_and_twins(
     warn!(error = %format!("{e:#}"), "can't compare the landed candidates with their upstream commits");
     Vec::new()
   });
+  // by changed lines, whether the upstream has their change as it is: one `merge-tree` and one `rev-parse`, none
+  // without such a candidate
+  let by_lines: Vec<&LandedCandidate> = candidates.iter().copied().filter(|candidate| candidate.by == CandidateBy::ChangedLines).collect();
+  let already: HashMap<&str, bool> = units_already_in(git_executor, repo_path, &by_lines, &[state.upstream_head.as_str()])
+    .unwrap_or_else(|e| {
+      warn!(error = %format!("{e:#}"), "can't tell whether the upstream has the change of the landed candidates");
+      Vec::new()
+    })
+    .into_iter()
+    .zip(&by_lines)
+    .map(|(already, candidate)| (candidate.commit.as_str(), already[0]))
+    .collect();
   let ids: Vec<&str> = dropped
     .iter()
     .map(|drop| drop.commit.as_str())
@@ -456,7 +474,9 @@ fn drops_and_twins(
       subject: subject(&candidate.commit),
       upstream: candidate.upstream.clone(),
       upstream_subject: subject(&candidate.upstream),
+      by: candidate.by,
       interdiff,
+      already_upstream: candidate.by == CandidateBy::Key || already.get(candidate.commit.as_str()).copied().unwrap_or_default(),
     })
     .collect();
   (dropped, twins)
@@ -807,6 +827,7 @@ fn outcome(
         excluded: &state.excluded,
         new_head: &new_head,
         proven: &state.landed_dropped,
+        candidates: &state.landed_candidates,
         reads: None,
         not_landed: &not_landed,
       };

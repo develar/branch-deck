@@ -11,7 +11,7 @@ use domain_types::landed::LandedBranch;
 use domain_types::update_project::{KeptLostBinding, UpdateCheck, UpdateLostBinding, UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_signing::{Signing, commit_signing};
-use git_ops::landed_pairing::{LandedDrop, LandedReads};
+use git_ops::landed_pairing::{LandedCandidate, LandedDrop, LandedReads};
 use git_ops::lfs::prefetch_lfs_objects;
 use git_ops::revs::{Worktree, current_worktree, is_object_id, known_dirs, ref_exists, with_dirs_of};
 use git_ops::update_branch::{
@@ -358,6 +358,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
       excluded: plan.excluded(),
       new_head: &applied.new_head,
       proven: plan.landed_drops(),
+      candidates: plan.landed_candidates(),
       reads: plan.landed_reads(),
       not_landed: &[],
     };
@@ -474,6 +475,9 @@ pub(crate) struct LandedReport<'a> {
   pub new_head: &'a str,
   /// The local commits the replay left out because the upstream proves it has them: landed as their upstream commit
   pub proven: &'a [LandedDrop],
+  /// The candidates of the pairing (`UpdatePlan::landed_candidates`, `SessionState::landed_candidates`): a gone commit of
+  /// one landed as its upstream commit
+  pub candidates: &'a [LandedCandidate],
   /// What the pairing of the check read (`UpdatePlan::landed_reads`); `None` after a resolve session
   pub reads: Option<&'a LandedReads>,
   /// The local commits that are gone for another reason: a resolution dropped them, and no upstream commit has their
@@ -494,6 +498,7 @@ pub(crate) fn record_landed_update(
     excluded,
     new_head,
     proven,
+    candidates,
     reads,
     not_landed,
   } = *report;
@@ -511,6 +516,7 @@ pub(crate) fn record_landed_update(
         gone_is_landed: true,
         grouping,
         proven,
+        candidates,
         reads,
       },
     )?;

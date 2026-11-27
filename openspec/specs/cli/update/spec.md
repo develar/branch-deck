@@ -958,9 +958,10 @@ that key is no proof.
 
 ### Requirement: Rounds: The round of a candidate prints `landed_as` with the interdiff
 
-The round of a candidate, and the round of each of its fixups, MUST print `session.commit.landed_as`: the baseline
-commit, its subject, and the interdiff of the two from their changed lines without context, the candidate and its
-fixups summed: `local_only` (what a drop loses) and `upstream_only`, per path at most 20 lines, at most 20 paths.
+The round of a candidate, and the round of each commit it landed with (its fixups; by changed lines the other commits
+of its set), MUST print `session.commit.landed_as`: the baseline commit, its subject, and the interdiff of the two from
+their changed lines without context, the candidate and the commits it landed with summed: `local_only` (what a drop
+loses) and `upstream_only`, per path at most 20 lines, at most 20 paths.
 
 #### Scenario: The round of a twin
 - **WHEN** the round of a candidate opens
@@ -972,6 +973,11 @@ fixups summed: `local_only` (what a drop loses) and `upstream_only`, per path at
 - **WHEN** the candidate has fixups
 - **THEN** the interdiff sums the candidate and its fixups, and names a binary file
   [@test] crates/git-ops/src/landed_pairing_test.rs (`the_interdiff_of_a_twin_sums_the_fixups_and_names_a_binary_file`)
+
+#### Scenario: The round of a squashed pull request
+- **WHEN** the round of a commit opens whose pull request GitHub squashed under another identity
+- **THEN** `session.commit.landed_as` names the squash
+  [@test] crates/bd-update/src/resolve_test.rs (`a_commit_squashed_upstream_with_its_fixup_drops_as_landed_in_its_round_while_another_commit_conflicts`)
 
 ### Requirement: Rounds: The round of a candidate points at `--landed`
 
@@ -1018,9 +1024,10 @@ with `landed_as` (and `local_only` for a drop that lost lines).
 
 ### Requirement: Rounds: `--landed` refuses what it cannot drop
 
-`--landed` MUST refuse, changing nothing, a round without a twin (`not_landed_round`, exit 2), a commit with
-`local_only` without `--user`, the user's yes (`landed_differs`, exit 2, `ask_user`), and a commit that still changes
-files with `onto` for every conflicting file (`landed_not_empty`, exit 2, with `paths`).
+`--landed` MUST refuse, changing nothing, a round without a candidate (`not_landed_round`, exit 2), a commit with
+`local_only`, or of a candidate by changed lines whose change the upstream does not have as it is, without `--user`, the
+user's yes (`landed_differs`, exit 2, `ask_user`), and a commit that still changes files with `onto` for every
+conflicting file (`landed_not_empty`, exit 2, with `paths`).
 
 #### Scenario: A round without a twin
 - **WHEN** `--landed` names the commit of a round without a twin
@@ -1036,6 +1043,11 @@ files with `onto` for every conflicting file (`landed_not_empty`, exit 2, with `
 - **WHEN** `onto` for every conflicting file leaves the commit with a change
 - **THEN** it is `landed_not_empty` (exit 2, with `paths`), even with `--user`
   [@test] crates/bd-update/src/resolve_test.rs (`landed_refuses_a_round_without_a_twin_and_a_commit_that_keeps_a_change`)
+
+#### Scenario: A squash rewritten since, without the user's yes
+- **WHEN** `--landed` drops a commit of a candidate by changed lines whose squash the upstream rewrote since, without `--user`
+- **THEN** it is `landed_differs` (exit 2, `ask_user`), and nothing changes
+  [@test] crates/bd-update/src/resolve_test.rs (`landed_of_a_candidate_by_changed_lines_whose_squash_was_rewritten_asks_the_user`)
 
 ### Requirement: Rounds: `--landed` without `local_only` needs no question
 

@@ -22,7 +22,7 @@ use domain_types::operation::Intent;
 use domain_types::update_project::{UpdateCheck, UpdateCommit, UpdateKind, UpdateLostBinding, UpdateResolvedCommit, UpdateState};
 use generated_files::generated_by::GeneratedBy;
 use git_ops::index_lock::IndexLocked;
-use git_ops::landed_pairing::{LandedProof, PathLines};
+use git_ops::landed_pairing::{CandidateBy, LandedProof, PathLines};
 use git_ops::revs::short_id;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::MoveBlocked;
@@ -418,8 +418,9 @@ pub struct LandedDiffersOutput {
   pub landed_as: LandedAsOutput,
 }
 
-/// The baseline commit with the identity of a local commit (the same author, author time and subject), and how the two
-/// differ by their changed lines
+/// The baseline commit with the identity of a local commit (the same author, author time and subject), or after a
+/// conflict with the changed lines of the commit and those it landed with (a pull request squashed under another
+/// identity), and how the two differ by their changed lines
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct LandedAsOutput {
   /// The baseline commit
@@ -461,8 +462,8 @@ pub struct SessionCommit {
   pub author: String,
   /// `<commit>^..<commit>` with its message and stat (absolute): the intent to reapply onto `onto`
   pub patch: String,
-  /// The baseline commit with the identity of this commit (or of the commit it is a fixup of): `next` drops it with
-  /// `--landed`
+  /// The baseline commit with the identity of this commit (or of the commit it is a fixup of), or with the changed lines
+  /// of the commits it landed with: `next` drops it with `--landed`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub landed_as: Option<LandedAsOutput>,
   /// What to do with a commit that has `landed_as`
@@ -971,17 +972,24 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str, history: bool) -> 
 /// What a round of a twin asks: a drop that loses nothing needs no question, one that loses lines needs the user's yes
 fn twin_hint(twin: &LandedTwin, commit: &str, round: u32, bd: &str, short: &ShortIds) -> String {
   let upstream = short.get(&twin.upstream);
-  let fixup = if twin.commit == commit {
+  let (pairs, with) = match twin.by {
+    CandidateBy::Key => ("the identity of this commit", "this commit is a fixup of"),
+    CandidateBy::ChangedLines => ("the changed lines of this commit and the commits it landed with", "this commit landed with"),
+  };
+  let with = if twin.commit == commit {
     String::new()
   } else {
-    format!(" (this commit is a fixup of {})", short.get(&twin.commit))
+    format!(" ({with} {})", short.get(&twin.commit))
   };
+  let ask = format!(
+    "Ask the user, unless the user decided on this commit in `landed_differs` already. With a yes, run `next` with --user; with a no, resolve each file and run `{bd} update --continue --round {round}`"
+  );
   if twin.is_same() {
-    format!("The baseline has {upstream} with the identity of this commit{fixup} and every line it changes: `next` drops it with --landed, which takes `onto` for every file")
+    format!("The baseline has {upstream} with {pairs}{with} and every line it changes: `next` drops it with --landed, which takes `onto` for every file")
+  } else if twin.interdiff.local_only.is_empty() {
+    format!("The baseline has {upstream} with {pairs}{with}, but not their change as it is: it moved or was taken back since, so a drop may lose it. {ask}")
   } else {
-    format!(
-      "The baseline has {upstream} with the identity of this commit{fixup}, but this commit changes lines that {upstream} lacks (`landed_as.local_only`): a drop loses them. Ask the user, unless the user decided on this commit in `landed_differs` already. With a yes, run `next` with --user; with a no, resolve each file and run `{bd} update --continue --round {round}`"
-    )
+    format!("The baseline has {upstream} with {pairs}{with}, but this commit changes lines that {upstream} lacks (`landed_as.local_only`): a drop loses them. {ask}")
   }
 }
 
@@ -1042,14 +1050,14 @@ fn ask_reasons(view: &SessionView) -> Vec<AskReason> {
     reasons.push(AskReason {
       code: AskCode::LandedDiffers,
       message: format!(
-        "{} local commits have a twin in the baseline that lacks some of their lines (`session.landed_differs`): ask the user once whether to drop each as landed",
+        "{} local commits have a twin in the baseline that lacks some of their lines or their change as it is (`session.landed_differs`): ask the user once whether to drop each as landed",
         view.landed_differs.len()
       ),
     });
   } else if round_differs {
     reasons.push(AskReason {
       code: AskCode::LandedDiffers,
-      message: "The twin of this commit in the baseline lacks some of its lines (`session.commit.landed_as.local_only`): a drop loses them, so the user decides, unless the user decided on this commit in `landed_differs` already".to_string(),
+      message: "The twin of this commit in the baseline lacks some of its lines (`session.commit.landed_as.local_only`) or their change as it is (`session.commit.hint`): a drop may lose them, so the user decides, unless the user decided on this commit in `landed_differs` already".to_string(),
     });
   }
   reasons

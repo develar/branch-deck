@@ -163,10 +163,19 @@ flowchart TB
    and modes (`changed_lines`: a cherry-pick that conflicts on the line next to it). A proven twin is never replayed: a
    clean merge of it onto other context can add its lines a second time. Before the replay too, it pairs the commits of
    the same patch id under another key by the same author (`landed_pairing::pair_before_replay`), and when the replay
-   conflicts, those by another author, once (`landed_pairing::pair_landed`). A proven commit
+   conflicts, those by another author, once, then the candidates by changed lines (`landed_pairing::pair_after_conflict`):
+   GitHub squashes a pull request into one commit authored at the merge with ` (#N)` after its title, so no key names
+   it, and when a later commit of the pull request (a fixup of a review, or a plain follow-up) rewrote the lines of an
+   earlier one, no local commit alone has its patch. The one smallest set of local commits of its author whose changed
+   lines without context, summed in order, equal its own is its candidate (`landed_by_lines`): equal, not contained, as
+   a line like `}` is in any large commit; the smallest, so a change and its revert or a commit made after the merge stay
+   out; unique, or none. A proven commit
    landed as its upstream commit, also under a reworded message. When the replay conflicts because the robot folded
    fixups into their target, the update leaves the candidates out too if a `merge-tree` of each candidate's change
-   proves nothing local is lost (see "Update project" in [Git Operations](git-operations.md)). Where the check
+   proves nothing local is lost, into the result or, when the whole unit is left out, into the upstream (see "Update
+   project" in [Git Operations](git-operations.md)); equal changed lines say nothing of their place, nor that the upstream
+   kept them, so a candidate by changed lines is dropped by `--landed` without the user only by that proof too. After a
+   replay, a gone commit of a candidate landed as its upstream commit, which names a squash. Where the check
    replayed the local commits onto the
    upstream, a commit `git replay` drops as empty is landed even without a key match: a fixup with its target, or a
    branch squashed into one commit (no upstream commit then). Without a replay (a commit the user squashed, reworded

@@ -3074,7 +3074,7 @@ export type ErrorCode =
  *  `--landed` for a commit whose twin the baseline has
  */
 "empty_resolution" | 
-/**  `brd update --continue --landed` on a round whose commit has no twin in the baseline (no `landed_as`) */
+/**  `brd update --continue --landed` on a round whose commit has no candidate in the baseline (no `landed_as`) */
 "not_landed_round" | 
 /**
  *  `brd update --continue --landed` without `--user` on a round whose commit changes lines that its twin in the

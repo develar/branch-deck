@@ -1805,7 +1805,8 @@ fn leased_repo() -> (TestRepo, tempfile::TempDir, bd_core::context::Environment,
 /// subject they share an identity (`CommitKey`: the author, the second and the subject without the prefix) whenever they
 /// fall into the same second, and the update then proves the pair by its replay and its changed lines. Both change the
 /// readme alone, so before its replay the update compares their patch ids (`diff-tree --name-only` of both sides, then
-/// `diff-tree -p` with `patch-id --stable`): they differ. The round reads the attributes that mark a generated file
+/// `diff-tree -p` with `patch-id --stable`): they differ. After the conflict it reads their changed lines
+/// (`diff-tree -p -U0`), which sum to no candidate. The round reads the attributes that mark a generated file
 /// (`check-attr`, for its `generated_by`)
 #[test]
 fn a_lease_pick_that_conflicts() {
@@ -1865,7 +1866,7 @@ fn a_lease_pick_that_conflicts() {
       ("cat-file", 6),
       ("check-attr", 3),
       ("config", 2),
-      ("diff-tree", 4),
+      ("diff-tree", 5),
       ("fast-import", 1),
       ("for-each-ref", 1),
       ("hash-object", 1),

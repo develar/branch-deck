@@ -151,7 +151,8 @@ fn signing_an_update_adds_one_batch_read_and_write() {
 /// changed lines (`diff-tree -p -U0` with `patch-id --verbatim`, `diff-tree --raw`). The commit left compares its set of
 /// paths with the upstream commits no twin took (`diff-tree --name-only`); the upstream change of the same file has
 /// another patch id (`diff-tree -p` with `patch-id --stable`). The replay without the twins conflicts, so the pairing
-/// looks for the commits of the same patch by other authors (`rev-list --cherry-mark`, none here), and the
+/// looks for the commits of the same patch by other authors (`rev-list --cherry-mark`, none here) and reads the changed
+/// lines of the commit left and the upstream change of its file (`diff-tree -p -U0`), which sum to no candidate, and the
 /// resolve by words stops at the real conflict (`var`, `merge-tree`, `check-attr`, `cat-file`): the first conflict,
 /// which needs no search. It is described by its merge (`merge-tree`), the commit (`log`) and the upstream commits that
 /// change its files (`log`); the outline of the whole branch is gone (one `log` less). A conflict moves nothing: no
@@ -169,7 +170,7 @@ fn a_conflicting_update_pairs_its_commits_once() {
       ("cat-file", 2),
       ("check-attr", 1),
       ("config", 2),
-      ("diff-tree", 5),
+      ("diff-tree", 6),
       ("for-each-ref", 1),
       ("log", 4),
       ("merge-base", 2),
@@ -181,6 +182,45 @@ fn a_conflicting_update_pairs_its_commits_once() {
       ("rev-parse", 4),
       ("symbolic-ref", 2),
       ("var", 1),
+    ],
+  );
+}
+
+/// Update Project of branch-deck#265 after its fetch: a commit and its fixup that GitHub squashed under another
+/// identity. The replay conflicts, so after the `rev-list --cherry-mark` of the same patch by any author the pairing
+/// reads the changed lines of the two and of the squash once (`diff-tree -p -U0`): one candidate. The replay without it
+/// is clean, and one `merge-tree` with one `rev-parse` tell that its change is already there; the move takes the
+/// upstream
+#[test]
+fn a_conflicting_update_of_a_squashed_pull_request_reads_its_changed_lines_once() {
+  let Setup { upstream, clone } = setup();
+  upstream.create_commit("Add f", "f.txt", "a\nb\nc\n");
+  clone.git(&["pull", "-q", "--ff-only"]);
+  clone.create_commit_with_timestamp("(feature) feat: change b", "f.txt", "a\nB1\nc\n", Some(1_700_000_100));
+  clone.create_commit_with_timestamp("(feature) fixup! feat: change b", "f.txt", "a\nB2\nc\n", Some(1_700_000_200));
+  upstream.create_commit("feat: change b (#1)", "f.txt", "a\nB2\nc\n");
+  clone.git(&["fetch", "--quiet", "origin"]);
+  let git = counting();
+  let result = app_update(&git, &clone, false);
+  assert!(result.applied.is_some(), "{result:?}");
+  assert_eq!(clone.head(), upstream.head());
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 1),
+      ("config", 2),
+      ("diff-tree", 4),
+      ("for-each-ref", 1),
+      ("log", 3),
+      ("merge-base", 2),
+      ("merge-tree", 1),
+      ("patch-id", 1),
+      ("remote", 1),
+      ("replay", 1),
+      ("rev-list", 4),
+      ("rev-parse", 6),
+      ("symbolic-ref", 4),
+      ("update-ref", 1),
     ],
   );
 }

@@ -423,3 +423,114 @@ fn a_twin_on_other_context_is_left_out_of_a_clean_replay_by_its_replay() {
 fn the_same_patch_under_another_key_is_left_out_of_a_clean_replay_that_would_add_its_lines_again() {
   assert_note_left_out(NoteLanding::Squash, LandedProof::PatchId);
 }
+
+/// `setup` with `f.txt` of `a b c d` on both sides
+fn with_lines() -> Setup {
+  let setup = setup();
+  setup.upstream.create_commit("Add f", "f.txt", "a\nb\nc\nd\n");
+  git(&setup.clone, &["pull", "-q", "--ff-only"]);
+  setup
+}
+
+/// The squash of a pull request upstream as GitHub writes it, authored at the merge with ` (#1)` after the title, then
+/// one more upstream commit; the squash
+fn squash_upstream(upstream: &TestRepo, message: &str, files: &[(&str, &str)]) -> String {
+  let squash = upstream.create_commit_with_files(message, files);
+  upstream.create_commit("Other work", "other.txt", "other work\n");
+  squash
+}
+
+/// `(feature) feat: change b` to `B1` in `f.txt` and its fixup to `B2`
+fn change_b_and_fixup(clone: &TestRepo) {
+  commit_at(clone, "(feature) feat: change b", "f.txt", "a\nB1\nc\nd\n", 1_700_000_100);
+  commit_at(clone, "(feature) fixup! feat: change b", "f.txt", "a\nB2\nc\nd\n", 1_700_000_200);
+}
+
+/// The landing of `change_b_and_fixup` as `squash`, with `stay` commits that stay
+fn landed_as_squash(squash: &str, stay: usize) -> Vec<String> {
+  vec![format!("feature: feat: change b -> {squash}, fixup! feat: change b -> {squash} | {stay} stay")]
+}
+
+/// Squash `change_b_and_fixup` upstream, fetch, and assert that the preview (a clean rebase) and the update both land the
+/// two as the squash, with `stay` commits that stay; the squash
+fn land_squashed_change_b(upstream: &TestRepo, clone: &TestRepo, stay: usize) -> String {
+  let squash = squash_upstream(upstream, "feat: change b (#1)", &[("f.txt", "a\nB2\nc\nd\n")]);
+  git(clone, &["fetch", "origin"]);
+  let expected = landed_as_squash(&squash, stay);
+  assert_eq!(clean_landing(clone), expected);
+  assert_eq!(describe(&update(clone).unwrap().landed), expected);
+  squash
+}
+
+/// branch-deck#265: a commit and the fixup that rewrote its line, squashed by GitHub. The replay of the commit onto the
+/// squash conflicts; the two are a candidate of the squash by their changed lines, and leaving them out keeps their
+/// change: the preview and the update both drop them as landed in the squash
+#[test]
+fn a_commit_and_its_fixup_squashed_upstream_landed_as_the_squash() {
+  let Setup { upstream, clone } = with_lines();
+  change_b_and_fixup(&clone);
+  land_squashed_change_b(&upstream, &clone, 0);
+  assert_eq!(clone.head(), git(&clone, &["rev-parse", "origin/master"]));
+}
+
+/// A pull request whose later commit, no fixup, rewrote the line of an earlier one, squashed by GitHub: its three
+/// commits landed as the squash
+#[test]
+fn a_pull_request_squashed_upstream_landed_as_the_squash_when_a_later_commit_rewrote_an_earlier_one() {
+  let Setup { upstream, clone } = with_lines();
+  commit_at(&clone, "(feature) Change b", "f.txt", "a\nB1\nc\nd\n", 1_700_000_100);
+  commit_at(&clone, "(feature) Rework b", "f.txt", "a\nB2\nc\nd\n", 1_700_000_200);
+  commit_at(&clone, "(feature) Add g", "g.txt", "g\n", 1_700_000_300);
+  let squash = squash_upstream(&upstream, "Feature (#1)", &[("f.txt", "a\nB2\nc\nd\n"), ("g.txt", "g\n")]);
+  git(&clone, &["fetch", "origin"]);
+
+  let expected = vec![format!("feature: Change b -> {squash}, Rework b -> {squash}, Add g -> {squash} | 0 stay")];
+  assert_eq!(clean_landing(&clone), expected);
+  assert_eq!(describe(&update(&clone).unwrap().landed), expected);
+  assert_eq!(clone.head(), git(&clone, &["rev-parse", "origin/master"]));
+}
+
+/// `change_b_and_fixup` and a later local commit `subject` of `f.txt` with `content`, the two squashed upstream: the two
+/// drop as the squash, the later commit stays on top of the upstream
+fn assert_later_commit_stays(subject: &str, content: &str) {
+  let Setup { upstream, clone } = with_lines();
+  change_b_and_fixup(&clone);
+  commit_at(&clone, subject, "f.txt", content, 1_700_000_300);
+  land_squashed_change_b(&upstream, &clone, 1);
+  assert_eq!(git(&clone, &["log", "--format=%s", "-2"]), format!("{subject}\nOther work"));
+  assert_eq!(fs::read_to_string(clone.path().join("f.txt")).unwrap(), content);
+}
+
+/// A later local commit of another line of the squashed file shares no line with the squash: it stays local, replayed
+/// onto it
+#[test]
+fn a_later_commit_of_the_squashed_file_stays_local() {
+  assert_later_commit_stays("(feature) Change d", "a\nB2\nc\nD\n");
+}
+
+/// A local commit made after the merge rewrote the squashed line once more: the result lacks the squashed version, but
+/// the upstream has it and the replay leaves out the whole set, so the set drops and the later commit stays on top
+#[test]
+fn a_local_commit_that_rewrote_the_squashed_lines_further_stays_while_the_squashed_ones_drop() {
+  assert_later_commit_stays("(feature) Change b again", "a\nB3\nc\nd\n");
+}
+
+/// Two landed pull requests: a twin amended after its push, whose leaving out would lose the amend, and a squash. The
+/// replay without both loses the amend, so it is tried once more without the amended one: the squashed commits drop,
+/// the amended one stays
+#[test]
+fn a_candidate_amended_after_the_push_keeps_only_itself_local_while_the_other_squashes_drop() {
+  let Setup { upstream, clone } = with_lines();
+  let login = clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  land_as(&upstream, &clone, &login, "Add login", &[("login.txt", "login\n")]);
+  // an amend keeps the author time and the subject
+  fs::write(clone.path().join("extra.txt"), "extra\n").unwrap();
+  git(&clone, &["add", "extra.txt"]);
+  git(&clone, &["commit", "-q", "--amend", "--no-edit"]);
+  change_b_and_fixup(&clone);
+  // not the twin of the robot: the amend stays
+  land_squashed_change_b(&upstream, &clone, 0);
+  assert_eq!(git(&clone, &["log", "--format=%s", "-2"]), "(auth) Add login\nOther work");
+  assert_eq!(fs::read_to_string(clone.path().join("extra.txt")).unwrap(), "extra\n");
+  assert_eq!(fs::read_to_string(clone.path().join("f.txt")).unwrap(), "a\nB2\nc\nd\n");
+}

@@ -12,7 +12,7 @@ use crate::commit_writer::{
   discard_temp_refs, parse_raw_commit, sweep_stale_temp_refs, write_edited_commit, write_store_commits,
 };
 use crate::generated::generated_of;
-use crate::landed_pairing::{LandedCandidate, LandedDrop, PathLines, interdiffs};
+use crate::landed_pairing::{CandidateBy, LandedCandidate, LandedDrop, PathLines, interdiffs, units_already_in};
 use crate::lfs::WorktreeMove;
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::paths::{ChangedPath, changed_paths, commits_touching};
@@ -717,8 +717,8 @@ impl fmt::Display for ResolveError {
       ),
       Self::NotLandedRound { round, commit, subject } => write!(
         f,
-        "Round {round}, commit {} {subject}: the baseline has no commit with its identity (`session.commit.landed_as`), so \
-         --landed can't drop it. Resolve the files and run --continue without --landed. {}",
+        "Round {round}, commit {} {subject}: the baseline has no commit with its identity or its changed lines \
+         (`session.commit.landed_as`), so --landed can't drop it. Resolve the files and run --continue without --landed. {}",
         short_id(commit),
         unchanged(*round)
       ),
@@ -1518,9 +1518,10 @@ pub fn apply_prepared_round(git_executor: &GitCommandExecutor, repo_path: &str, 
   Ok(Step::Round(session))
 }
 
-/// The `--landed` decision of the open round: it names the round's commit, which has a twin upstream
-/// (`SessionState::candidate_of`), and a commit that changes lines its twin lacks (`interdiffs`) is dropped only with
-/// `--user`
+/// The `--landed` decision of the open round: it names the round's commit, which has a candidate
+/// (`SessionState::candidate_of`), and a commit that changes lines its upstream commit lacks (`interdiffs`), or of a
+/// candidate by changed lines whose change the upstream does not have as it is (`units_already_in`), is dropped only
+/// with `--user`
 fn landed_decision(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -1546,7 +1547,14 @@ fn landed_decision(
   let interdiff = interdiffs(git_executor, repo_path, &[(candidate.unit().collect(), candidate.upstream.as_str())])?
     .pop()
     .unwrap_or_default();
-  if !interdiff.local_only.is_empty() && !input.user {
+  // equal changed lines say nothing of their place, nor that the upstream still has them: by changed lines, only a
+  // change the upstream already has drops without the user
+  let differs = !interdiff.local_only.is_empty()
+    || (candidate.by == CandidateBy::ChangedLines
+      && !units_already_in(git_executor, repo_path, &[candidate], &[state.upstream_head.as_str()])?
+        .first()
+        .is_some_and(|already| already[0]));
+  if differs && !input.user {
     return Err(anyhow::Error::new(ResolveError::LandedDiffers {
       round: state.round,
       commit: conflict.commit.clone(),

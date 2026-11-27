@@ -16,6 +16,7 @@
 use crate::autosquash_targets::fixups_by_target;
 use crate::commit_list::parse_single_commit;
 use crate::commit_utils::COMMIT_RECORD_FORMAT;
+use crate::landed_by_lines::with_candidates_by_changed_lines;
 use crate::merge_tree_output::parse_merge_tree_batch;
 use crate::resolve_check::MAX_REPORTED_LINES;
 use anyhow::{Result, anyhow, bail};
@@ -656,6 +657,9 @@ pub(crate) type PathSets = HashMap<String, BTreeSet<Vec<u8>>>;
 #[derive(Debug, Clone, Default)]
 pub struct BeforeReplay {
   pub pairing: LandedPairing,
+  /// The sets of paths of the local and the upstream commits that no twin took (`with_same_patch_by_authors`); none when
+  /// either side had no such commit
+  pub(crate) paths: PathSets,
 }
 
 /// The pairing of every check of an update before its replay: the twins (`pair_twins`), then the commits of the same
@@ -663,14 +667,16 @@ pub struct BeforeReplay {
 /// becomes empty, and the merge of a commit the upstream has onto other context can add its lines a second time
 pub fn pair_before_replay(git_executor: &GitCommandExecutor, repo_path: &str, reads: &LandedReads) -> Result<BeforeReplay> {
   let twins = pair_twins(git_executor, repo_path, reads)?;
-  let (pairing, _paths) = with_same_patch_by_authors(git_executor, repo_path, reads, twins)?;
-  Ok(BeforeReplay { pairing })
+  let (pairing, paths) = with_same_patch_by_authors(git_executor, repo_path, reads, twins)?;
+  Ok(BeforeReplay { pairing, paths })
 }
 
 /// The pairing of an update whose replay conflicted, after the pairing before it: the commits of the same patch by any
-/// author (`with_patch_identical`)
+/// author (`with_patch_identical`), then the candidates by the changed lines of a set of commits
+/// (`landed_by_lines::with_candidates_by_changed_lines`)
 pub fn pair_after_conflict(git_executor: &GitCommandExecutor, repo_path: &str, scope: LandedScope<'_>, reads: &LandedReads, before: BeforeReplay) -> Result<LandedPairing> {
-  with_patch_identical(git_executor, repo_path, scope, reads, before.pairing)
+  let pairing = with_patch_identical(git_executor, repo_path, scope, reads, before.pairing)?;
+  with_candidates_by_changed_lines(git_executor, repo_path, reads, &before.paths, pairing)
 }
 
 /// Pair each local commit of `reads` with the upstream commit of its `CommitKey`, one to one, the oldest local commit of
@@ -834,6 +840,39 @@ fn pairing_of(reads: &LandedReads, mut drops: Vec<LandedDrop>, candidates: &[(&s
   pairing
 }
 
+/// Whether the change of the unit of each of `candidates`, from the parent of its commit to its last commit
+/// (`LandedCandidate::last`), is already in each of `tips`: its merge into the tip is clean and writes the tip's tree. By
+/// candidate, then by tip. One `merge-tree --stdin` of every pair and one `rev-parse` of the trees of the tips, none
+/// without candidates or tips
+pub fn units_already_in(git_executor: &GitCommandExecutor, repo_path: &str, candidates: &[&LandedCandidate], tips: &[&str]) -> Result<Vec<Vec<bool>>> {
+  if candidates.is_empty() || tips.is_empty() {
+    return Ok(vec![vec![false; tips.len()]; candidates.len()]);
+  }
+  let input = lines_of(
+    candidates
+      .iter()
+      .flat_map(|candidate| tips.iter().map(move |tip| format!("{}^ -- {tip} {}", candidate.commit, candidate.last()))),
+  );
+  let output = git_executor
+    .cmd(&["merge-tree", "--write-tree", "--stdin", "-z", "--no-messages"], repo_path)
+    .stdin(input.as_bytes())
+    .bytes()?;
+  let merges = parse_merge_tree_batch(&output, candidates.len() * tips.len())?;
+  let mut args = vec!["rev-parse".to_string()];
+  args.extend(tips.iter().map(|tip| format!("{tip}^{{tree}}")));
+  let args: Vec<&str> = args.iter().map(String::as_str).collect();
+  let trees = git_executor.execute_command_lines(&args, repo_path)?;
+  if trees.len() != tips.len() {
+    bail!("rev-parse printed {} trees for {} commits", trees.len(), tips.len());
+  }
+  Ok(
+    merges
+      .chunks(tips.len())
+      .map(|merges| merges.iter().zip(&trees).map(|(merge, tree)| merge.clean && merge.output.tree == *tree).collect())
+      .collect(),
+  )
+}
+
 /// Which `(local, upstream)` pairs are a cherry-pick: the merge of the local commit's change onto the upstream commit's
 /// parent (`merge-tree --merge-base L^ T^ L`) writes the upstream commit's tree. One `merge-tree --stdin` for all pairs
 /// and one `rev-parse` of the upstream trees, none without pairs
@@ -897,9 +936,93 @@ pub struct Interdiff {
 /// The paths an `Interdiff` lists per side, each with at most `MAX_REPORTED_LINES` lines
 const MAX_INTERDIFF_PATHS: usize = 20;
 
-/// The net changed lines of one side of a twin, by path: each line with its count, `+<line>` with a negative count for
-/// a removed line, in the order of their first change
-pub(crate) type NetLines = BTreeMap<String, Vec<(String, i64)>>;
+/// The net changed lines of one side of a twin, by path (`net_of`)
+pub(crate) type NetLines = BTreeMap<String, PathNet>;
+
+/// The net changed lines of one path: each line with its count, `+<line>` with a negative count for a removed line, in
+/// the order of their first change; the last `binary <blob>` and the composed `mode <old> <new>`, which no count sums
+#[derive(Debug, Clone, Default)]
+pub(crate) struct PathNet {
+  order: Vec<String>,
+  counts: HashMap<String, i64>,
+}
+
+impl PathNet {
+  /// Adds a changed line (`changed_lines`): `+x` after `-x` (or the reverse) cancels, as a later commit that takes back
+  /// what an earlier one did; a later binary file replaces the earlier one, and a later mode change composes with the
+  /// earlier one (none when it is back to the old mode)
+  fn add(&mut self, line: &str) {
+    if line.starts_with("binary ") {
+      self.remove_where(|key| key.starts_with("binary "));
+      self.insert(line.to_string(), 1);
+      return;
+    }
+    if let Some(change) = line.strip_prefix("mode ") {
+      let (old, new) = change.split_once(' ').unwrap_or((change, ""));
+      let earlier = self
+        .order
+        .iter()
+        .find(|key| self.counts.get(*key).is_some_and(|count| *count != 0) && key.starts_with("mode "))
+        .cloned();
+      let old = match &earlier {
+        Some(key) => {
+          self.counts.insert(key.clone(), 0);
+          key
+            .strip_prefix("mode ")
+            .and_then(|change| change.split_once(' '))
+            .map_or(old, |(first, _)| first)
+            .to_string()
+        }
+        None => old.to_string(),
+      };
+      if old != new {
+        self.insert(format!("mode {old} {new}"), 1);
+      }
+      return;
+    }
+    match line.strip_prefix('-') {
+      Some(text) => self.insert(format!("+{text}"), -1),
+      None => self.insert(line.to_string(), 1),
+    }
+  }
+
+  fn insert(&mut self, key: String, count: i64) {
+    if let Some(net) = self.counts.get_mut(&key) {
+      *net += count;
+    } else {
+      self.order.push(key.clone());
+      self.counts.insert(key, count);
+    }
+  }
+
+  fn remove_where(&mut self, matches: impl Fn(&str) -> bool) {
+    for (key, count) in &mut self.counts {
+      if matches(key) {
+        *count = 0;
+      }
+    }
+  }
+
+  /// The count of a line, 0 for one it lacks
+  fn count(&self, key: &str) -> i64 {
+    self.counts.get(key).copied().unwrap_or_default()
+  }
+
+  /// The lines with a count, in the order of their first change
+  pub(crate) fn lines(&self) -> impl Iterator<Item = (&str, i64)> {
+    self.order.iter().map(|key| (key.as_str(), self.count(key))).filter(|(_, count)| *count != 0)
+  }
+}
+
+/// Whether two sides change the same lines: every path with the same counts
+pub(crate) fn same_net(one: &NetLines, other: &NetLines) -> bool {
+  let covers = |one: &NetLines, other: &NetLines| {
+    one
+      .iter()
+      .all(|(path, entries)| entries.lines().all(|(key, count)| other.get(path).map_or(0, |theirs| theirs.count(key)) == count))
+  };
+  covers(one, other) && covers(other, one)
+}
 
 /// The interdiff of each `(local commits, upstream commit)` pair: the changed lines of the diffs without context
 /// (`-U0`) of each side, the local commits summed in order (a line that one adds and a later one removes cancels), then
@@ -957,29 +1080,17 @@ pub(crate) fn read_changed_lines(git_executor: &GitCommandExecutor, repo_path: &
   Ok(changed_lines(&patches))
 }
 
-/// The net changed lines of `commits` summed in order: a line that one adds and a later one removes cancels
+/// The net changed lines of `commits` summed in order (`PathNet::add`): a line that one adds and a later one removes
+/// cancels
 pub(crate) fn net_of(changes: &ChangedLines, commits: &[&str]) -> NetLines {
   let mut net = NetLines::new();
   for (path, lines) in commits.iter().filter_map(|commit| changes.get(*commit)).flatten() {
     let entries = net.entry(path.clone()).or_default();
     for line in lines {
-      add_line(entries, line);
+      entries.add(line);
     }
   }
   net
-}
-
-/// Adds a changed line to the net lines of a path: `+x` after `-x` (or the reverse) cancels, as a later commit that
-/// takes back what an earlier one did
-fn add_line(entries: &mut Vec<(String, i64)>, line: &str) {
-  let (key, count) = match line.strip_prefix('-') {
-    Some(text) => (format!("+{text}"), -1),
-    None => (line.to_string(), 1),
-  };
-  match entries.iter_mut().find(|(entry, _)| *entry == key) {
-    Some((_, net)) => *net += count,
-    None => entries.push((key, count)),
-  }
 }
 
 /// The net lines of `one` that `other` lacks, as `+<line>` and `-<line>`: the first `max_paths` paths, each with its
@@ -987,14 +1098,13 @@ fn add_line(entries: &mut Vec<(String, i64)>, line: &str) {
 fn only_in(one: &NetLines, other: &NetLines, (max_paths, max_lines): (usize, usize)) -> Vec<PathLines> {
   let mut paths = Vec::new();
   for (path, entries) in one {
-    let theirs = other.get(path);
-    let count_in = |key: &str| theirs.and_then(|entries| entries.iter().find(|(entry, _)| entry == key)).map_or(0, |(_, net)| *net);
+    let count_in = |key: &str| other.get(path).map_or(0, |theirs| theirs.count(key));
     let lines: Vec<String> = entries
-      .iter()
-      .filter(|(key, net)| *net != 0 && *net != count_in(key))
+      .lines()
+      .filter(|(key, net)| *net != count_in(key))
       .map(|(key, net)| match key.strip_prefix('+') {
-        Some(text) if *net < 0 => format!("-{text}"),
-        _ => key.clone(),
+        Some(text) if net < 0 => format!("-{text}"),
+        _ => key.to_string(),
       })
       .take(max_lines)
       .collect();

@@ -177,7 +177,7 @@ pub enum ErrorCode {
   /// The resolution leaves the round's commit without changes: ask the user, then `--allow-empty` or `--drop-empty`;
   /// `--landed` for a commit whose twin the baseline has
   EmptyResolution,
-  /// `brd update --continue --landed` on a round whose commit has no twin in the baseline (no `landed_as`)
+  /// `brd update --continue --landed` on a round whose commit has no candidate in the baseline (no `landed_as`)
   NotLandedRound,
   /// `brd update --continue --landed` without `--user` on a round whose commit changes lines that its twin in the
   /// baseline lacks (`landed_as.local_only`): a drop loses them, so the user decides

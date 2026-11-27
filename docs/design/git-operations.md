@@ -1729,13 +1729,31 @@ Details:
   weeks (20,000), and the paths of the local commits as its pathspec still leave 7.5 s for 50 paths. A copy by another
   author whose merge is clean therefore replays, as a change the upstream has without any proof does.
 
+  Then the candidates by changed lines (`landed_by_lines`), for a pull request that GitHub squashed into one commit
+  authored at the merge (` (#N)` after its title: no key) after a later commit rewrote the lines of an earlier one, so
+  that no local commit alone has its patch. The targets are the upstream commit of each candidate by key that a later
+  commit may complete (its unit is in every set of it), then each upstream commit of the local authors that nothing
+  took, oldest first. A local commit that nothing took may join a set if it has the target's author and its paths meet
+  the target's, and a target is read only if those paths cover its own (the sets of paths of the pairing before the
+  replay, no process); then one `diff-tree --stdin -p -U0 --full-index` of them all, none without such a target. In
+  memory, the set is the one smallest whose changed lines, summed in order (a later mode change composed with an earlier
+  one, the last version of a binary file), equal the target's both ways, among the commits that change a line of the
+  target or of another such commit, at most 16 in every subset (past that only those within the target's paths, past
+  that again only all of them at once); two of one size make none. The set is one candidate (`CandidateBy::
+  ChangedLines`, `landed_with` the commits after the first).
+
   A pair that no rung proves is a candidate: the key alone is no proof (an amend after the push, a robot that folded
-  its fixups in, an independent fix of the same lines). The proven commits are left out as a drop does, one `replay`
-  per run of kept commits, the first run `<d_1>^ ^U ^<previous tips>` onto U. If that still conflicts, the candidates
-  with their fixups, then the candidates alone, are left out too. Such a set counts only if each candidate keeps its
-  change: one `merge-tree --stdin` of the lines `C^ -- <result> <last>`, where `last` is the last local fixup of C (or
-  C), and each merge gives the result's tree. So the proven drops and the other local commits never take part in the
-  check, and a fixup made after the push keeps the candidate's set out. A robot that autosquashes pushes the target
+  its fixups in, an independent fix of the same lines), nor equal changed lines. The proven commits are left out as a
+  drop does, one `replay` per run of kept commits, the first run `<d_1>^ ^U ^<previous tips>` onto U. If that still
+  conflicts, the candidates with the commits they landed with, then the candidates by key alone with those by changed
+  lines whole, are left out too. Such a set counts only if each candidate keeps its change: one `merge-tree --stdin` of
+  the lines `C^ -- <result> <last>` and `C^ -- U <last>`, where `last` is the last commit C landed with (or C), and one
+  `rev-parse` of both trees; the merge into the result gives the result's tree, or the replay leaves out the whole unit
+  and the merge into U gives U's tree, so the commits replayed after it (a local commit that rewrote the squashed line
+  again) build on it there. A set one of whose candidates fails is replayed once more without that one. So the proven
+  drops and the other local commits never take part in the check, a fixup made after the push keeps its candidate's set
+  out, and an amended candidate does not keep the others in. Where commits of other branches sit between the commits of
+  a set, `C^..last` holds them too: the check may fail then, and loses nothing. A robot that autosquashes pushes the target
   with its fixups folded in; the target alone then adds other content than the upstream has, and a plain replay
   conflicts. The candidates are tried only after a conflict, so a clean update costs only the pairing before its
   replay.
@@ -1977,8 +1995,8 @@ the largest share.
 - **An empty result.** When the resolved tree equals its parent's (the `ls` of the same `fast-import`), the round is
   `empty_resolution` (exit 2, `ask_user`), and nothing moves. `--allow-empty` keeps the empty commit; `--drop-empty
   <commit>`, with the round's commit, drops it: no `resolved` id and no note, `proof: user` in `dropped`. It is in the
-  landed report only when an upstream commit has its key (a candidate, `landed_candidates`): the user took the
-  upstream's side. The message of a round with a twin names `--landed` instead.
+  landed report only when it is a commit of a candidate (`landed_candidates`, by key or by changed lines): the user took
+  the upstream's side. The message of a round with a twin names `--landed` instead.
 - **Supported types.** A round supports `CONFLICT (contents)` of text (also `CONFLICT (add/add)`, a content conflict
   without `before`), `CONFLICT (modify/delete)`, `CONFLICT (rename/delete)` (the stages are at the new path; the message
   gives the old one, so `--take` and `--delete` take either), and rename/rename 1→2. The latter is one file: `path` is
@@ -2005,21 +2023,26 @@ the largest share.
   `git rebase` leaves out a commit of the same patch id (in `dropped`, with its upstream commit and its proof):
   the proof holds also when the upstream changed the lines further and a replay would conflict. The other local
   commits form runs of consecutive commits (`run_starts`): each replay covers one run, and the binary search runs
-  inside the first run that conflicts. A candidate, which the landed detection finds only by its author, author time
-  and subject, is never left out: that key is no proof. The session keeps each candidate with its upstream commit and
-  its fixups (`landed_candidates`).
-- **The round of a twin.** The round of a candidate, or of one of its fixups, prints `session.commit.landed_as`: the
+  inside the first run that conflicts. A candidate, which the landed detection finds by its author, author time and
+  subject, or after a conflict by the changed lines of its set, is never left out: neither is a proof. The session
+  keeps each candidate with its upstream commit, the commits it landed with and what pairs it (`landed_candidates`;
+  `state.json` version 5, which reads version 4 and its `fixups`).
+- **The round of a twin.** The round of a candidate, or of a commit it landed with, prints `session.commit.landed_as`: the
   upstream commit with its subject and the interdiff of the two (`interdiffs` of `landed_pairing.rs`). One `diff-tree
   --stdin -p -U0 --full-index` gives the changed lines of both sides; the candidate and its fixups are summed in order,
   so a line that a fixup takes back cancels, and the sides are compared as multisets per path: `local_only` is what a
   drop of the commit loses, `upstream_only` what the upstream changed beside it (a fixup that the robot folded in). A
-  mode change is `mode <old> <new>`, a binary file `binary <blob>`. No `log -S`: only the two patches.
+  mode change is `mode <old> <new>`, a binary file `binary <blob>`; summed, a later mode change composes with an earlier
+  one and a later binary version replaces an earlier one. No `log -S`: only the two patches. A candidate by changed lines
+  has no `local_only` by its pairing, but equal lines say nothing of their place: its view and `--landed` also merge its
+  change into the upstream (`units_already_in`: one `merge-tree` and one `rev-parse`), and when the upstream rewrote or
+  took back the squashed lines since, the round asks the user as for `local_only`.
   `session.next` is `--continue --round <n> --landed <commit>`. `--landed` takes `onto` for every conflicting file,
   writes the resolved commit as any round, and drops it when its tree equals its parent's (`landed_not_empty` with the
-  paths otherwise). Without `local_only` it needs no question. With `local_only` it refuses as `landed_differs` (exit 2,
-  `ask_user`) until `--user` says that the user decided; the resolution keeps `local_only` as what the drop lost.
-  `--landed` on a round without a twin is `not_landed_round`. A drop by `--landed` is `proof: landed` in `dropped`, and
-  the landed report finds it by its key as its twin.
+  paths otherwise). Without `local_only` (and by changed lines with the change in the upstream) it needs no question.
+  Otherwise it refuses as `landed_differs` (exit 2, `ask_user`) until `--user` says that the user decided; the resolution
+  keeps `local_only` as what the drop lost. `--landed` on a round without a candidate is `not_landed_round`. A drop by
+  `--landed` is `proof: landed` in `dropped`, and the landed report finds it as its candidate's upstream commit.
 - **The first output.** The output that starts a session (and its repeat by `brd update`, and `--status`) reads the
   details once (`ViewDetail::Full`): `dropped` with the subjects and, from one `diff-tree` of every candidate,
   `session.landed_differs`, the candidates not replayed yet whose `local_only` is not empty, so the agent asks the user

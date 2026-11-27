@@ -166,9 +166,11 @@ An error with `ask_user: true` (`uncommitted_overlap`, `empty_resolution`, `land
 A round (`state: conflict`, `session`):
 - `session.commit`: the local commit being replayed, its `subject`, `body` and `patch` (the commit as a patch: the
   intent to reapply). `landed_as`: the baseline commit with the identity of this commit (the same author, author time
-  and subject; also for a fixup of such a commit), its `local_only` lines (what this commit changes and the baseline
-  commit does not: what a drop loses; `+` added, `-` removed) and `upstream_only` lines. Without `local_only`,
-  `session.next` drops the commit with --landed: run it, no question. With `local_only`, `ask_user` is true: with the
+  and subject; also for a fixup of such a commit), or with the changed lines of this commit and the commits it landed
+  with (a pull request squashed under another identity), its `local_only` lines (what this commit changes and the baseline
+  commit does not: what a drop loses; `+` added, `-` removed) and `upstream_only` lines. Without `ask_user`,
+  `session.next` drops the commit with --landed: run it, no question. With `local_only`, or when the baseline no longer
+  has the change of a squash as it is (`session.commit.hint`), `ask_user` is true: with the
   user's yes, run `next` with --user; with a no, resolve the files and run `brd update --continue --round <n>`. The
   first output of a session lists every such commit in `session.landed_differs[]` (`commit`, `subject`,
   `landed_as`): ask once about all of them, then use each answer in its round.

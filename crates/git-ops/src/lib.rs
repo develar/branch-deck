@@ -122,6 +122,7 @@ pub mod history;
 pub mod host_client;
 pub mod host_objects;
 pub mod index_lock;
+pub mod landed_by_lines;
 pub mod landed_pairing;
 pub mod lease_slot;
 pub mod lfs;

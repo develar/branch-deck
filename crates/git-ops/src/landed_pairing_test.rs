@@ -284,14 +284,17 @@ fn the_pairing_of_the_twins_runs_no_process_without_a_twin() {
   assert_eq!(processes(&git), []);
 }
 
-/// The same changed lines under another subject are another commit
+/// The same changed lines under another subject are another commit before the replay; after a conflict they make a
+/// candidate, never a drop
 #[test]
-fn the_same_lines_under_another_identity_pair_with_nothing() {
+fn the_same_lines_under_another_identity_are_no_proof_but_a_candidate_after_a_conflict() {
   let repo = sides();
-  repo.commit_history("refs/heads/local", &[change_line_5()]);
-  twin_after(&repo, (4, "four"), "Fix line 5", &[]);
-  let paired = pairing(&repo);
-  assert_eq!(paired, LandedPairing::unpaired(paired.local.clone()));
+  let local = repo.commit_history("refs/heads/local", &[change_line_5()]);
+  let upstream = twin_after(&repo, (4, "four"), "Fix line 5", &[]);
+  let (all, before) = pairings(&repo);
+  assert_eq!(before, LandedPairing::unpaired(local.clone()));
+  assert_eq!(all.drops, []);
+  assert_eq!(all.candidates, [by_lines(&local[0], &[], &upstream[1])]);
 }
 
 /// A commit amended after its push keeps its identity, not its change: a candidate with its fixup, never a drop
@@ -422,4 +425,204 @@ fn the_local_commits_come_with_the_paths_they_change() {
   paths.sort();
   assert_eq!(paths, ["new name.kt", "old name.kt", "src/b.kt"]);
   assert_processes(&git, &[("log", 2)]);
+}
+
+/// A candidate by changed lines of `commit` with the commits it `landed_with` as `upstream`
+fn by_lines(commit: &str, landed_with: &[&str], upstream: &str) -> LandedCandidate {
+  LandedCandidate {
+    commit: commit.to_string(),
+    upstream: upstream.to_string(),
+    landed_with: landed_with.iter().map(|commit| (*commit).to_string()).collect(),
+    by: CandidateBy::ChangedLines,
+  }
+}
+
+/// `(feature) Change line 5` to `B1` on `local`, then `rework`, which rewrites it to `B2`
+fn change_and_rework(repo: &TestRepo, rework: &str) -> Vec<String> {
+  repo.commit_history("refs/heads/local", &[at("(feature) Change line 5", &[(5, "B1")], 200), at(rework, &[(5, "B2")], 300)])
+}
+
+/// The squash of a pull request on `upstream`, as GitHub writes it: authored at the merge, ` (#1)` after the title
+fn squash(repo: &TestRepo, commit: HistoryCommit) -> String {
+  repo.commit_history("refs/heads/upstream", &[commit]).remove(0)
+}
+
+/// The issue of #265: a commit and the fixup that rewrote its line, squashed at the merge under another identity. Neither
+/// is a twin nor of the squash's patch, so the pairing before the replay has none; after the conflict the two are one
+/// candidate of the squash
+#[test]
+fn a_commit_and_its_fixup_squashed_under_another_identity_are_one_candidate_after_a_conflict() {
+  let repo = sides();
+  let local = change_and_rework(&repo, "(feature) fixup! Change line 5");
+  let upstream = squash(&repo, at("Change line 5 (#1)", &[(5, "B2")], 900));
+  let (all, before) = pairings(&repo);
+  assert_eq!(before, LandedPairing::unpaired(local.clone()));
+  assert_eq!(all.candidates, [by_lines(&local[0], &[&local[1]], &upstream)]);
+  assert_eq!(all.likely_landed(), local);
+  assert_eq!(all.candidate_sets(), [local]);
+}
+
+/// A pull request whose later commit, no fixup, rewrote the line of an earlier one: the three are one candidate
+#[test]
+fn a_pull_request_squashed_under_another_identity_is_one_candidate_of_its_commits() {
+  let repo = sides();
+  let mut local = change_and_rework(&repo, "(feature) Rework line 5");
+  local.extend(repo.commit_history("refs/heads/local", &[at("(feature) Add line 8", &[(5, "B2"), (8, "eight")], 350)]));
+  let upstream = squash(&repo, at("Feature (#1)", &[(5, "B2"), (8, "eight")], 900));
+  assert_eq!(pairing(&repo).candidates, [by_lines(&local[0], &[&local[1], &local[2]], &upstream)]);
+}
+
+/// A twin by identity that lacks what a later commit of its pull request changed: the later commit completes it, and
+/// the candidate is one by changed lines
+#[test]
+fn a_key_candidate_takes_the_later_commit_that_completes_its_squash() {
+  let repo = sides();
+  let local = change_and_rework(&repo, "(feature) Rework line 5");
+  let upstream = squash(&repo, at("Change line 5", &[(5, "B2")], 200));
+  let (all, before) = pairings(&repo);
+  assert_eq!(
+    before.candidates,
+    [LandedCandidate {
+      commit: local[0].clone(),
+      upstream: upstream.clone(),
+      landed_with: Vec::new(),
+      by: CandidateBy::Key,
+    }]
+  );
+  assert_eq!(all.candidates, [by_lines(&local[0], &[&local[1]], &upstream)]);
+}
+
+/// A change and its revert in the middle of the pull request sum to nothing: the smallest set leaves them out
+#[test]
+fn a_change_and_its_revert_stay_out_of_the_candidate_of_a_squash() {
+  let repo = sides();
+  let local = repo.commit_history(
+    "refs/heads/local",
+    &[
+      at("(feature) Change line 5", &[(5, "B1")], 200),
+      at("(feature) Add line 8", &[(5, "B1"), (8, "eight")], 250),
+      at("(feature) Revert \"Add line 8\"", &[(5, "B1")], 260),
+      at("(feature) fixup! Change line 5", &[(5, "B2")], 300),
+    ],
+  );
+  let upstream = squash(&repo, at("Change line 5 (#1)", &[(5, "B2")], 900));
+  assert_eq!(pairing(&repo).candidates, [by_lines(&local[0], &[&local[3]], &upstream)]);
+}
+
+/// A local commit made after the merge rewrites the squashed line again: it changes a line of the squash, but the
+/// smallest set leaves it out, and a fixup made after the merge too (a unit is no set)
+#[test]
+fn a_commit_made_after_the_squash_stays_out_of_its_candidate() {
+  let repo = sides();
+  let local = repo.commit_history(
+    "refs/heads/local",
+    &[
+      at("(feature) Change line 5", &[(5, "B1")], 200),
+      at("(feature) fixup! Change line 5", &[(5, "B2")], 300),
+      at("(feature) fixup! Change line 5", &[(5, "B3")], 950),
+      at("(feature) Change line 5 again", &[(5, "B4")], 960),
+    ],
+  );
+  let upstream = squash(&repo, at("Change line 5 (#1)", &[(5, "B2")], 900));
+  assert_eq!(pairing(&repo).candidates, [by_lines(&local[0], &[&local[1]], &upstream)]);
+}
+
+/// A line that a commit adds and a later one rewrites is no line of the squash: the later commit brings it into the set
+#[test]
+fn a_pure_addition_rewritten_by_a_later_commit_is_in_the_candidate_of_its_squash() {
+  let repo = sides();
+  let local = repo.commit_history(
+    "refs/heads/local",
+    &[
+      HistoryCommit::new("(feature) Call foo", &[("g.txt", "foo(1)\n")]).at(200),
+      HistoryCommit::new("(feature) Call foo with 2", &[("g.txt", "foo(2)\n")]).at(300),
+    ],
+  );
+  let upstream = squash(&repo, HistoryCommit::new("Call foo (#1)", &[("g.txt", "foo(2)\n")]).at(900));
+  assert_eq!(pairing(&repo).candidates, [by_lines(&local[0], &[&local[1]], &upstream)]);
+}
+
+/// A file the pull request added and deleted again is no path of the squash
+#[test]
+fn a_pull_request_that_added_and_deleted_a_file_is_one_candidate() {
+  let repo = sides();
+  let local = repo.commit_history(
+    "refs/heads/local",
+    &[
+      HistoryCommit::new("(feature) Change line 5", &[("f.txt", &numbered_lines(&[(5, "B1")])), ("tmp.txt", "draft\n")]).at(200),
+      HistoryCommit::new("(feature) Rework line 5", &[("f.txt", &numbered_lines(&[(5, "B2")]))])
+        .deleting(&["tmp.txt"])
+        .at(300),
+    ],
+  );
+  let upstream = squash(&repo, at("Change line 5 (#1)", &[(5, "B2")], 900));
+  assert_eq!(pairing(&repo).candidates, [by_lines(&local[0], &[&local[1]], &upstream)]);
+}
+
+/// A binary file updated twice: the sum keeps its last version, as the squash has it
+#[test]
+fn a_pull_request_that_updated_a_binary_file_twice_is_one_candidate() {
+  let repo = sides();
+  let local = repo.commit_history(
+    "refs/heads/local",
+    &[
+      HistoryCommit::new("(feature) Change line 5", &[("f.txt", &numbered_lines(&[(5, "B1")])), ("bin.dat", "\0two")]).at(200),
+      HistoryCommit::new("(feature) Rework line 5", &[("f.txt", &numbered_lines(&[(5, "B2")])), ("bin.dat", "\0three")]).at(300),
+    ],
+  );
+  let upstream = squash(
+    &repo,
+    HistoryCommit::new("Change line 5 (#1)", &[("f.txt", &numbered_lines(&[(5, "B2")])), ("bin.dat", "\0three")]).at(900),
+  );
+  assert_eq!(pairing(&repo).candidates, [by_lines(&local[0], &[&local[1]], &upstream)]);
+}
+
+/// A change made twice locally (A, its revert, A again) with one squash upstream: either A alone sums to it, so neither
+/// is its candidate
+#[test]
+fn two_sets_equal_to_one_squash_make_no_candidate() {
+  let repo = sides();
+  repo.commit_history(
+    "refs/heads/local",
+    &[
+      at("(feature) Change line 5", &[(5, "B")], 200),
+      at("(feature) Revert \"Change line 5\"", &[], 250),
+      at("(feature) Change line 5 once more", &[(5, "B")], 300),
+    ],
+  );
+  squash(&repo, at("Change line 5 (#1)", &[(5, "B")], 900));
+  assert_eq!(pairing(&repo).candidates, []);
+}
+
+/// A squash with a line that no local commit changes, e.g. a suggestion of the review applied on GitHub: no set
+#[test]
+fn an_upstream_commit_with_a_line_no_set_has_pairs_with_nothing() {
+  let repo = sides();
+  change_and_rework(&repo, "(feature) fixup! Change line 5");
+  squash(&repo, at("Change line 5 (#1)", &[(5, "B2"), (7, "suggested")], 900));
+  assert_eq!(pairing(&repo).candidates, []);
+}
+
+/// After a conflict the candidates by changed lines read the changed lines of the commits of the targets in one
+/// `diff-tree -p -U0`, and nothing when no target's paths are the local commits' (after the one `rev-list
+/// --cherry-mark` of the same patch by any author)
+#[test]
+fn the_candidates_by_changed_lines_read_one_diff_and_none_without_a_set_of_paths() {
+  let count = |squashed: HistoryCommit| {
+    let repo = sides();
+    change_and_rework(&repo, "(feature) fixup! Change line 5");
+    squash(&repo, squashed);
+    in_scope(&repo, |scope| {
+      let reads = read_landed(repo.git_executor(), repo.path_str(), scope).unwrap();
+      let before = pair_before_replay(repo.git_executor(), repo.path_str(), &reads).unwrap();
+      let git = counting();
+      pair_after_conflict(&git, repo.path_str(), scope, &reads, before).unwrap();
+      processes(&git)
+    })
+  };
+  assert_eq!(
+    count(at("Change line 5 (#1)", &[(5, "B2")], 900)),
+    [("diff-tree".to_string(), 1), ("rev-list".to_string(), 1)]
+  );
+  assert_eq!(count(HistoryCommit::new("Other file (#2)", &[("g.txt", "g\n")]).at(900)), [("rev-list".to_string(), 1)]);
 }

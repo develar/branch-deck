@@ -11,9 +11,10 @@ use crate::commit_utils::{blob_id, file_blob_id};
 use crate::commit_writer::{WrittenCommits, current_committer, write_notes_to_refs};
 use crate::crlf::conversions;
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock, IndexLocked};
-use crate::landed_pairing::{LandedCandidate, LandedDrop, LandedPairing, LandedReads, LandedScope, pair_after_conflict, pair_before_replay, read_landed_with_paths};
+use crate::landed_pairing::{
+  LandedCandidate, LandedDrop, LandedPairing, LandedReads, LandedScope, pair_after_conflict, pair_before_replay, read_landed_with_paths, units_already_in,
+};
 use crate::lfs::WorktreeMove;
-use crate::merge_tree_output::parse_merge_tree_batch;
 use crate::paths::{COMMIT_FORMAT, ChangedPath, MAX_ATTRIBUTED_FILES, changed_paths, commits_touching, parse_commits};
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
 use crate::replay::{RunsReplay, first_conflict_in_runs, replay_of, replay_range_with_env};
@@ -30,7 +31,6 @@ use domain_types::update_project::{AppliedUpdate, FirstConflict, KeptLostBinding
 
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
@@ -241,6 +241,12 @@ impl UpdatePlan {
   /// The local commits the replay left out because the upstream proves it has them
   pub fn landed_drops(&self) -> &[LandedDrop] {
     self.replay.as_ref().map_or(&[], ReplayPlan::left_out)
+  }
+
+  /// The candidates of the pairing (`LandedPairing::candidates`): after the replay a gone commit of one landed as its
+  /// upstream commit
+  pub fn landed_candidates(&self) -> &[LandedCandidate] {
+    self.replay.as_ref().map_or(&[], |replay| &replay.pairing.candidates)
   }
 
   /// What the pairing of the check read, for the landed report (`sync_core::landed::find_landed`); `None` when it
@@ -942,8 +948,10 @@ fn replay_by_words(
 /// For a replay that conflicts: replay again without the drops of `plan`, which the upstream proves it has, unless the
 /// replay that conflicted already left out all of them (`tried`: those of `pair_before_replay` come first), then also
 /// without each set of candidates in order (`LandedPairing::candidate_sets`). A set of candidates counts only if the
-/// result keeps the change of each candidate (`keeps_candidates`). So a commit amended after it was pushed, or a fixup
-/// made after, is never lost; its set fails and the update conflicts as before. `None` when nothing gives a clean result
+/// change of each candidate it leaves out is already there (`left_out_safely`); else the set is tried once more without
+/// the candidates whose change would be lost. So a commit amended after it was pushed, or a fixup made after, is never
+/// lost, and does not keep the other candidates in; the update conflicts as before only when nothing gives a clean
+/// result (`None`)
 fn replay_without_landed(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -955,46 +963,69 @@ fn replay_without_landed(
 ) -> Result<Option<String>> {
   let pairing = &plan.pairing;
   let drops = drop_ids(plan.left_out());
+  let replay = |set: &[String]| -> Result<Option<String>> {
+    let dropped: Vec<String> = drops.iter().chain(set).cloned().collect();
+    replay_skipping(git_executor, repo_path, upstream_head, local_revs, &pairing.local, &dropped, env)
+  };
   if drops.len() > tried
-    && let Some(new_head) = replay_skipping(git_executor, repo_path, upstream_head, local_revs, &pairing.local, &drops, env)?
+    && let Some(new_head) = replay(&[])?
   {
     info!(left_out = drops.len(), "the update leaves out local commits the upstream proves it has");
     return Ok(Some(new_head));
   }
   for set in pairing.candidate_sets() {
-    let dropped: Vec<String> = drops.iter().chain(&set).cloned().collect();
-    let Some(new_head) = replay_skipping(git_executor, repo_path, upstream_head, local_revs, &pairing.local, &dropped, env)? else {
+    let Some(new_head) = replay(&set)? else {
       continue;
     };
     let candidates: Vec<&LandedCandidate> = pairing.candidates.iter().filter(|candidate| set.contains(&candidate.commit)).collect();
-    if keeps_candidates(git_executor, repo_path, &new_head, &candidates)? {
-      info!(left_out = dropped.len(), "the update leaves out local commits the upstream already has");
+    let safe = left_out_safely(git_executor, repo_path, [&new_head, upstream_head], &candidates, &set)?;
+    if safe.iter().all(|safe| *safe) {
+      info!(left_out = drops.len() + set.len(), "the update leaves out local commits the upstream already has");
       return Ok(Some(new_head));
     }
-    debug!(dropped = set.len(), "leaving the landed candidates out loses a local change");
+    // once more without the candidates whose change would be lost
+    let lost: HashSet<&str> = candidates
+      .iter()
+      .zip(&safe)
+      .filter(|(_, safe)| !**safe)
+      .flat_map(|(candidate, _)| candidate.unit())
+      .collect();
+    let fewer: Vec<String> = set.iter().filter(|commit| !lost.contains(commit.as_str())).cloned().collect();
+    debug!(lost = lost.len(), left_out = fewer.len(), "leaving some landed candidates out loses a local change");
+    if fewer.is_empty() {
+      continue;
+    }
+    let Some(new_head) = replay(&fewer)? else {
+      continue;
+    };
+    let rest: Vec<&LandedCandidate> = candidates.iter().zip(&safe).filter(|(_, safe)| **safe).map(|(candidate, _)| *candidate).collect();
+    if left_out_safely(git_executor, repo_path, [&new_head, upstream_head], &rest, &fewer)?
+      .iter()
+      .all(|safe| *safe)
+    {
+      info!(
+        left_out = drops.len() + fewer.len(),
+        "the update leaves out the local commits the upstream already has, and keeps the others"
+      );
+      return Ok(Some(new_head));
+    }
   }
   Ok(None)
 }
 
-/// Whether `new_head` keeps the change of each candidate that a replay left out: the merge of the change from the
-/// candidate's parent to its last local fixup (`LandedCandidate::last`) into `new_head` writes the tree of `new_head`.
-/// Each candidate alone, so the drops and the other local commits never take part. One `merge-tree --stdin` and one
-/// `rev-parse`
-fn keeps_candidates(git_executor: &GitCommandExecutor, repo_path: &str, new_head: &str, candidates: &[&LandedCandidate]) -> Result<bool> {
-  if candidates.is_empty() {
-    return Ok(true);
-  }
-  let input = candidates.iter().fold(String::new(), |mut input, candidate| {
-    let _ = writeln!(input, "{}^ -- {new_head} {}", candidate.commit, candidate.last());
-    input
-  });
-  let output = git_executor
-    .cmd(&["merge-tree", "--write-tree", "--stdin", "-z", "--no-messages"], repo_path)
-    .stdin(input.as_bytes())
-    .bytes()?;
-  let merges = parse_merge_tree_batch(&output, candidates.len())?;
-  let new_tree = git_executor.execute_command(&["rev-parse", &format!("{new_head}^{{tree}}")], repo_path)?;
-  Ok(merges.iter().all(|merge| merge.clean && merge.output.tree == new_tree))
+/// Whether leaving out each of `candidates` (the commits of `set`) loses nothing: the change of its unit is already in
+/// the result (`tips[0]`), or the replay leaves out its whole unit and the change is already in the upstream (`tips[1]`), so the
+/// commits replayed after it build on it there (`landed_pairing::units_already_in`). Each candidate alone, so the drops
+/// and the other local commits never take part. One `merge-tree --stdin` and one `rev-parse`, none without candidates
+fn left_out_safely(git_executor: &GitCommandExecutor, repo_path: &str, tips: [&str; 2], candidates: &[&LandedCandidate], set: &[String]) -> Result<Vec<bool>> {
+  let already = units_already_in(git_executor, repo_path, candidates, &tips)?;
+  Ok(
+    candidates
+      .iter()
+      .zip(already)
+      .map(|(candidate, already)| already[0] || (already[1] && candidate.unit().all(|commit| set.iter().any(|left_out| left_out == commit))))
+      .collect(),
+  )
 }
 
 /// Replay the `local` commits (oldest first, `local_revs`) onto `onto` without `dropped`: each run of kept commits

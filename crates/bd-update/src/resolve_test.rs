@@ -2078,3 +2078,104 @@ fn keep_name_keeps_a_name_unbound_on_the_users_word() {
   );
   assert_eq!(done.get("next"), None, "nothing to fold: {done}");
 }
+
+/// branch-deck#265 while another commit conflicts: a commit and its fixup that GitHub squashed under another identity
+/// are a candidate of the squash by their changed lines. Its round names the squash (`landed_as`), and `--landed` drops
+/// the commit at once, since the upstream has the change of the two as it is; the fixup's replay is empty, and the
+/// conflicting commit's round names no squash. Both landed as the squash
+#[test_log::test]
+fn a_commit_squashed_upstream_with_its_fixup_drops_as_landed_in_its_round_while_another_commit_conflicts() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED), ("f.txt", "a\nb\nc\n")]);
+  commit_at(&clone, "(feature) feat: change b", &[("f.txt", "a\nB1\nc\n")]);
+  let commit = clone.head();
+  commit_at(&clone, "(feature) fixup! feat: change b", &[("f.txt", "a\nB2\nc\n")]);
+  let fixup = clone.head();
+  commit_at(&clone, "(ui) Change line 2", &[("shared.txt", "one\nmine\nthree\n")]);
+  let squash = upstream.create_commit("feat: change b (#1)", "f.txt", "a\nB2\nc\n");
+  upstream.create_commit("Change line 2 upstream", "shared.txt", "one\ntheirs\nthree\n");
+
+  let (exit_code, round) = run_in(&clone, &["--full-ids", "update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  assert_eq!(round["session"]["commit"]["commit"], json!(commit), "{round}");
+  assert_eq!(
+    (&round["session"]["commit"]["landed_as"]["commit"], round.get("ask_user")),
+    (&json!(squash), None),
+    "{round}"
+  );
+  let (exit_code, round) = run_next(&clone, &round, &[]);
+  assert_eq!(exit_code, 1, "{round}");
+  assert_eq!(
+    (&round["session"]["commit"]["subject"], round["session"]["commit"].get("landed_as")),
+    (&json!("(ui) Change line 2"), None),
+    "{round}"
+  );
+  std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs and mine\nthree\n").unwrap();
+  let (exit_code, done) = run_next(&clone, &round, &[]);
+  assert_eq!(exit_code, 0, "{done}");
+  assert_eq!(
+    done["dropped"],
+    json!([
+      { "commit": commit, "subject": "(feature) feat: change b", "upstream": squash, "proof": "landed" },
+      { "commit": fixup, "subject": "fixup! feat: change b", "upstream": squash, "proof": "empty" },
+    ]),
+    "{done}"
+  );
+  assert_eq!(
+    done["landed"][0]["commits"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .map(|commit| &commit["upstream"])
+      .collect::<Vec<_>>(),
+    [&json!(squash), &json!(squash)],
+    "{done}"
+  );
+  assert_eq!(git(&clone, &["log", "--format=%s", "-2"]), "(ui) Change line 2\nChange line 2 upstream");
+}
+
+/// A squash under another identity whose line the upstream rewrote since: the changed lines of the commit and its fixup
+/// still equal the squash, but the upstream no longer has their change as it is, so its round asks the user, and
+/// `--landed` drops it, and then its fixup in the round of its own, only with `--user`
+#[test_log::test]
+fn landed_of_a_candidate_by_changed_lines_whose_squash_was_rewritten_asks_the_user() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", SHARED), ("f.txt", "a\nb\nc\n")]);
+  commit_at(&clone, "(feature) feat: change b", &[("f.txt", "a\nB1\nc\n")]);
+  commit_at(&clone, "(feature) fixup! feat: change b", &[("f.txt", "a\nB2\nc\n")]);
+  let squash = upstream.create_commit("feat: change b (#1)", "f.txt", "a\nB2\nc\n");
+  upstream.create_commit("Rework b", "f.txt", "a\nB9\nc\n");
+
+  let (exit_code, round) = run_in(&clone, &["--full-ids", "update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  assert_eq!(
+    (&round["session"]["commit"]["landed_as"]["commit"], &round["ask_user"]),
+    (&json!(squash), &json!(true)),
+    "{round}"
+  );
+  assert!(round["session"]["commit"]["hint"].as_str().unwrap().contains("not their change as it is"), "{round}");
+  let (exit_code, output) = run_next(&clone, &round, &[]);
+  assert_error(&output, exit_code, (2, "landed_differs"));
+  let (exit_code, round) = run_next(&clone, &round, &["--user"]);
+  assert_eq!(exit_code, 1, "{round}");
+  assert_eq!(
+    (
+      &round["session"]["commit"]["subject"],
+      &round["session"]["commit"]["landed_as"]["commit"],
+      &round["ask_user"]
+    ),
+    (&json!("(feature) fixup! feat: change b"), &json!(squash), &json!(true)),
+    "{round}"
+  );
+  let (exit_code, done) = run_next(&clone, &round, &["--user"]);
+  assert_eq!(exit_code, 0, "{done}");
+  assert_eq!(
+    done["dropped"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .map(|drop| (&drop["upstream"], &drop["proof"]))
+      .collect::<Vec<_>>(),
+    [(&json!(squash), &json!("landed")), (&json!(squash), &json!("landed"))],
+    "{done}"
+  );
+  assert_eq!(clone.head(), upstream.head());
+}
