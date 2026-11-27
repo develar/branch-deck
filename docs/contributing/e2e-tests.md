@@ -71,8 +71,10 @@ rules in one line each and links here.
   profile of the run says where its time went (`node scripts/e2e-steps.mjs <part of its title> [--kinds]`,
   [A test of many starts](../design/e2e-testing.md#performance-considerations)). What is not the subject costs no
   start: a commit the window needs goes in before the sync that opens it, a second recent project before the first
-  sync (`addRecentProject` reloads the page), and the boxes of one measurement are asked at once (`Promise.all`), each
-  a quarter of a second under load; a sweep of widths is two tests of half the widths (`title-bar.spec.ts`).
+  sync (`addRecentProject` reloads the page), an unapplied branch a test starts with in its template
+  (`branch_filter_unapplied`: the template after `brd sync` and `brd unapply docs`, synced once; the Unapply and its sync
+  took 4.6 s under load in each test of an unapplied branch), and the boxes of one measurement are asked at once
+  (`Promise.all`), each a quarter of a second under load; a sweep of widths is two tests of half the widths (`title-bar.spec.ts`).
 - **Locators**: role and accessible name first (`getByRole("menuitem", { name: "Review Changes" })`), `getByTestId` for
   what has no role or name; never CSS classes or DOM shape, which the theme and the React Compiler change.
 - **The rows of a diff** are drawn by the painter outside React, without a role or a name: find them by the helpers of

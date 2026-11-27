@@ -15,13 +15,21 @@ import { recordCommand, recordRewrites, routeCommandError, expectClosed, openToo
 // each with a file of its own
 const BRANCH_COUNT = 11
 
-/** Every test starts on the synced `branch_filter` repository, `repo` */
-const test = base.extend<{ repo: TestRepositoryBuilder }>({
+/**
+ * Every test starts on the synced `branch_filter` repository, `repo`; a test of what is done with the unapplied branch
+ * docs starts on `branch_filter_unapplied` (`unapplied`), the same repository after `brd sync` and `brd unapply docs` in
+ * a terminal, so its first sync shows docs kept: the Unapply of the page and its sync are the subject of their own tests
+ */
+const test = base.extend<{ unapplied: boolean; repo: TestRepositoryBuilder }>({
+  unapplied: [false, { option: true }],
   repo: [
-    async ({ page, setupRepo, syncAndWaitForBranches }, use) => {
-      const repo = await setupRepo("branch_filter")
+    async ({ page, setupRepo, syncAndWaitForBranches, unapplied }, use) => {
+      const repo = await setupRepo(unapplied ? "branch_filter_unapplied" : "branch_filter")
       await syncAndWaitForBranches()
-      await expect(page.getByTestId("branch-row")).toHaveCount(BRANCH_COUNT)
+      await expect(page.getByTestId("branch-row")).toHaveCount(unapplied ? BRANCH_COUNT - 1 : BRANCH_COUNT)
+      if (unapplied) {
+        await expect(unappliedRow(page, "docs")).toBeVisible()
+      }
       await use(repo)
     },
     { auto: true },
@@ -136,141 +144,6 @@ test.describe("Unapplied branches", () => {
     await expect(page.locator("[data-slot=popover-title]")).toHaveText("Unapplied")
   })
 
-  test("should push an unapplied branch under its own name from both menus, its status shown with no sync, and refuse its Safe Push with why", async ({ page, repo }) => {
-    await unapplyFromMenu(page, "docs")
-    const row = unappliedRow(page, "docs")
-    await expect(row.getByTestId("unapplied-branch-remote")).toHaveText("Not pushed")
-    const syncs = await recordCommand(page, "sync")
-    const synced = await finishedSyncCount(page)
-
-    // the right-click menu
-    await row.click({ button: "right" })
-    const safePush = page.getByRole("menuitem", { name: "Safe Push" })
-    await expect(safePush).toHaveAttribute("aria-disabled", "true")
-    await safePush.hover()
-    await expect(openTooltip(page)).toHaveText("Not in master: Reapply it to land it")
-    await runAndWaitForAnswer(page, "execute", () => page.getByRole("menuitem", { name: "Push Branch", exact: true }).click())
-    // the click closed the menu: its items stay in the page until its exit ended, beside those of the next menu
-    await expectClosed(page.getByRole("menu"))
-    await expect(toast(page, "Pushed branch docs")).toContainText("The remote keeps it as user-name/unapplied/docs")
-    await expectPushedToRemote(repo, ["unapplied:docs"])
-    expect(await remotePushes(repo)).toEqual([["unapplied:docs"]])
-    // the session shows the status the push left: no sync runs for it
-    await expect(row.getByTestId("unapplied-branch-remote")).toHaveText("Pushed")
-    expect(syncs).toEqual([])
-    await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", String(synced))
-
-    // the "⋯" menu: the remote has it as it is, so its Push is disabled until a sync finds otherwise
-    await row.hover()
-    await row.getByRole("button", { name: "More actions for docs" }).click()
-    await expect(page.getByRole("menuitem", { name: "Push Branch", exact: true })).toHaveAttribute("aria-disabled", "true")
-    await page.keyboard.press("Escape")
-    await expectClosed(page.getByRole("menu"))
-    // its remote branch set back to master in a terminal: the next sync finds its commit to push
-    await repo.pushInTerminal(branchOf("unapplied:docs"), { revision: "origin/master" })
-    await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())
-    await expect(row.getByTestId("unapplied-branch-remote")).toHaveText("1 commit to push")
-    await row.hover()
-    await row.getByRole("button", { name: "More actions for docs" }).click()
-    await runAndWaitForAnswer(page, "execute", () => page.getByRole("menuitem", { name: "Push Branch", exact: true }).click())
-    expect(await remotePushes(repo)).toEqual([["unapplied:docs"], ["unapplied:docs"]])
-    await expectPushedToRemote(repo, ["unapplied:docs"])
-  })
-
-  test("should delete an unapplied branch after its name is typed, with no sync after it", async ({ page }) => {
-    await unapplyFromMenu(page, "docs")
-    const deletes = await recordRewrites(page, "deleteUnapplied")
-    const syncs = await recordCommand(page, "sync")
-    const synced = await finishedSyncCount(page)
-    await unappliedRow(page, "docs").click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Delete Unapplied Branch…" }).click()
-    await inlineDeleteConfirmation.waitForVisible(page)
-    await expect(inlineDeleteConfirmation.getPortal(page)).toContainText("only a copy on the remote keeps them")
-    await submitInlineForm(inlineDeleteConfirmation.getInput(page), "docs")
-    await expect(toast(page, "Deleted the unapplied branch docs")).toBeVisible()
-    // the patch of the session removes the card's only row
-    await expect(unappliedCard(page)).toHaveCount(0)
-    expect(deletes.map(call => call.rewrite.branchName)).toEqual(["user-name/unapplied/docs"])
-    expect(syncs).toEqual([])
-    await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", String(synced))
-  })
-
-  test("should reapply an unapplied branch from its right-click menu, the branch back in the table, and take it back with Undo", async ({ page }) => {
-    await unapplyFromMenu(page, "docs")
-
-    await unappliedRow(page, "docs").click({ button: "right" })
-    await runAndWaitForSync(page, () => page.getByRole("menuitem", { name: "Reapply" }).click())
-    const reapplied = toast(page, "Reapplied docs")
-    await expect(reapplied).toContainText("1 commit back on top of HEAD")
-    await expect(findBranchRow(page, "docs")).toHaveCount(1)
-    await expect(unappliedCard(page)).toHaveCount(0)
-    await expect(page.getByTestId("uncommitted-changes-card")).toHaveCount(0)
-
-    // its Undo takes it out again, and the unapplied branch is back
-    await runAndWaitForSync(page, () => reapplied.getByRole("button", { name: "Undo" }).click())
-    await expect(unappliedRow(page, "docs")).toBeVisible()
-    await expect(findBranchRow(page, "docs")).toHaveCount(0)
-  })
-
-  test("should reapply an unapplied branch from the ⋯ of its row, the branch back in the table", async ({ page }) => {
-    await unapplyFromMenu(page, "docs")
-    const row = unappliedRow(page, "docs")
-    await row.hover()
-    await row.getByRole("button", { name: "More actions for docs" }).click()
-    await runAndWaitForSync(page, () => page.getByRole("menuitem", { name: "Reapply" }).click())
-    await expect(findBranchRow(page, "docs")).toHaveCount(1)
-    await expect(unappliedCard(page)).toHaveCount(0)
-  })
-
-  test("should open the review of an unapplied branch from its menu, from D on its row and from D on a commit of it", async ({ page }) => {
-    await unapplyFromMenu(page, "docs")
-    const kept = { kind: "unapplied", name: "user-name/unapplied/docs" }
-
-    // Review Changes, the first item of its menu
-    await unappliedRow(page, "docs").click({ button: "right" })
-    const fromMenu = await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Changes" }).click(), 1)
-    expect(fromMenu.title).toBe("Review docs")
-    expect(fromMenu.data).toMatchObject({ chain: ["docs"], kept, focus: { commitId: null } })
-
-    // D on its focused row
-    await unappliedRow(page, "docs").focus()
-    expect((await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 2)).data).toMatchObject({ kept, focus: { commitId: null } })
-
-    // D on a commit of its expanded row: the review of the branch at the commit
-    await unappliedRow(page, "docs").click()
-    // a commit row, not the row of the branch, which names its tip too
-    const commit = unappliedCard(page).locator("tr[data-row-id]:not([data-branch-name])").filter({ hasText: "Document the API" })
-    await commit.hover()
-    const atCommit = await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 3)
-    expect(atCommit.title).toMatch(/^Review docs · [0-9a-f]{8}$/)
-    expect(atCommit.data).toMatchObject({ kept, focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
-  })
-
-  test("should review an unapplied branch on its own base with its actions, its Reapply going on as the review of the branch it is again", async ({ page }) => {
-    await unapplyFromMenu(page, "docs")
-    await unappliedRow(page, "docs").click({ button: "right" })
-    const fromMenu = await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Changes" }).click(), 1)
-
-    // the window: its own commits on the commit it left from; its title bar Reapply and its push, its "⋯" the rest of
-    // its menu, the actions of its own session
-    const window = await openLinkedSubWindow(page, fromMenu)
-    await expect(window.getByTestId("branch-review-stack")).toContainText(/^Unapplied on [0-9a-f]{8}/)
-    await expect(window.getByTestId("branch-review-segment")).toHaveText(["docs1"])
-    await expect(window.getByTestId("review-file-header").first()).toBeVisible()
-    const actions = window.getByTestId("branch-review-actions")
-    await expect(actions.getByRole("button", { name: /^Push/ })).toBeVisible()
-    await actions.getByRole("button", { name: "More actions for docs" }).click()
-    await expect(window.getByRole("menuitem", { name: "Delete Unapplied Branch…" })).toBeVisible()
-    await window.keyboard.press("Escape")
-    // Reapply runs in the window, in its repository; the review goes on as the review of the branch it is again, which
-    // the window opens itself
-    const reviewOfBranch = await pressAndExpectReviewOpened(window, () => runAndWaitForSync(page, () => actions.getByRole("button", { name: "Reapply" }).click()), 1)
-    await expect(findBranchRow(page, "docs")).toHaveCount(1)
-    await expect(unappliedCard(page)).toHaveCount(0)
-    expect(reviewOfBranch.title).toBe("Review docs")
-    expect(reviewOfBranch!.data.kept).toBeUndefined()
-  })
-
   test("should say that the commits of an unapplied branch cancel each other out when together they change no file, and show the first", async ({
     page,
     repo,
@@ -299,44 +172,183 @@ test.describe("Unapplied branches", () => {
     await expect(empty).toHaveCount(0)
   })
 
-  test("should preview an unapplied branch with Space, its own commits with their messages, and review it from the preview", async ({ page }) => {
-    await unapplyFromMenu(page, "docs")
-    await unappliedRow(page, "docs").focus()
-    await page.keyboard.press(" ")
-    const preview = page.getByTestId("kept-preview")
-    await expect(preview.getByRole("heading", { name: "docs" })).toBeVisible()
-    await expect(preview.getByTestId("kept-preview-meta")).toHaveText("Unapplied·1 commit")
-    await expect(preview.getByTestId("kept-preview-commit")).toHaveCount(1)
-    await expect(preview.getByTestId("kept-preview-commit")).toContainText("Document the API")
-    // D: the review of the kept branch, the preview closes once the window opened
-    expect((await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 1)).data).toMatchObject({
-      kind: "branch",
-      chain: ["docs"],
-      kept: { kind: "unapplied", name: "user-name/unapplied/docs" },
-    })
-    await expectClosed(preview)
-    // the review button of a commit: the review at that commit
-    await unappliedRow(page, "docs").focus()
-    await page.keyboard.press(" ")
-    expect((await pressAndExpectReviewOpened(page, () => preview.getByTestId("kept-preview-commit-review").click(), 2)).data.focus.commitId).toMatch(/^[0-9a-f]{40}$/)
-  })
+  test.describe("an unapplied branch", () => {
+    test.use({ unapplied: true })
 
-  test("should keep an unapplied branch whose reapply conflicts and say why", async ({ page }) => {
-    await unapplyFromMenu(page, "docs")
-    // the reapply is the next rewrite of the engine the page runs
-    await routeCommandError(
-      page,
-      "execute",
-      {
-        code: "reapply_conflict",
-        message: "Document the API (1a2b3c4d) of user-name/unapplied/docs conflicts with HEAD in docs.md: nothing was changed",
-        details: { type: "conflict", commits: ["1a2b3c4d".padEnd(40, "0")], paths: ["docs.md"] },
-      },
-      { times: 1 },
-    )
-    await unappliedRow(page, "docs").click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Reapply" }).click()
-    await expect(toast(page, "Cannot reapply docs")).toContainText("conflicts with HEAD in docs.md")
-    await expect(unappliedRow(page, "docs")).toBeVisible()
+    test("should push an unapplied branch under its own name from both menus, its status shown with no sync, and refuse its Safe Push with why", async ({ page, repo }) => {
+      const row = unappliedRow(page, "docs")
+      await expect(row.getByTestId("unapplied-branch-remote")).toHaveText("Not pushed")
+      const syncs = await recordCommand(page, "sync")
+      const synced = await finishedSyncCount(page)
+
+      // the right-click menu
+      await row.click({ button: "right" })
+      const safePush = page.getByRole("menuitem", { name: "Safe Push" })
+      await expect(safePush).toHaveAttribute("aria-disabled", "true")
+      await safePush.hover()
+      await expect(openTooltip(page)).toHaveText("Not in master: Reapply it to land it")
+      await runAndWaitForAnswer(page, "execute", () => page.getByRole("menuitem", { name: "Push Branch", exact: true }).click())
+      // the click closed the menu: its items stay in the page until its exit ended, beside those of the next menu
+      await expectClosed(page.getByRole("menu"))
+      await expect(toast(page, "Pushed branch docs")).toContainText("The remote keeps it as user-name/unapplied/docs")
+      await expectPushedToRemote(repo, ["unapplied:docs"])
+      expect(await remotePushes(repo)).toEqual([["unapplied:docs"]])
+      // the session shows the status the push left: no sync runs for it
+      await expect(row.getByTestId("unapplied-branch-remote")).toHaveText("Pushed")
+      expect(syncs).toEqual([])
+      await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", String(synced))
+
+      // the "⋯" menu: the remote has it as it is, so its Push is disabled until a sync finds otherwise
+      await row.hover()
+      await row.getByRole("button", { name: "More actions for docs" }).click()
+      await expect(page.getByRole("menuitem", { name: "Push Branch", exact: true })).toHaveAttribute("aria-disabled", "true")
+      await page.keyboard.press("Escape")
+      await expectClosed(page.getByRole("menu"))
+      // its remote branch set back to master in a terminal: the next sync finds its commit to push
+      await repo.pushInTerminal(branchOf("unapplied:docs"), { revision: "origin/master" })
+      await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())
+      await expect(row.getByTestId("unapplied-branch-remote")).toHaveText("1 commit to push")
+      await row.hover()
+      await row.getByRole("button", { name: "More actions for docs" }).click()
+      await runAndWaitForAnswer(page, "execute", () => page.getByRole("menuitem", { name: "Push Branch", exact: true }).click())
+      expect(await remotePushes(repo)).toEqual([["unapplied:docs"], ["unapplied:docs"]])
+      await expectPushedToRemote(repo, ["unapplied:docs"])
+    })
+
+    test("should delete an unapplied branch after its name is typed, with no sync after it", async ({ page }) => {
+      const deletes = await recordRewrites(page, "deleteUnapplied")
+      const syncs = await recordCommand(page, "sync")
+      const synced = await finishedSyncCount(page)
+      await unappliedRow(page, "docs").click({ button: "right" })
+      await page.getByRole("menuitem", { name: "Delete Unapplied Branch…" }).click()
+      await inlineDeleteConfirmation.waitForVisible(page)
+      await expect(inlineDeleteConfirmation.getPortal(page)).toContainText("only a copy on the remote keeps them")
+      await submitInlineForm(inlineDeleteConfirmation.getInput(page), "docs")
+      await expect(toast(page, "Deleted the unapplied branch docs")).toBeVisible()
+      // the patch of the session removes the card's only row
+      await expect(unappliedCard(page)).toHaveCount(0)
+      expect(deletes.map(call => call.rewrite.branchName)).toEqual(["user-name/unapplied/docs"])
+      expect(syncs).toEqual([])
+      await expect(page.getByTestId("sync-button")).toHaveAttribute("data-sync-count", String(synced))
+    })
+
+    test("should reapply an unapplied branch from its right-click menu, the branch back in the table, and take it back with Undo", async ({ page }) => {
+      await unappliedRow(page, "docs").click({ button: "right" })
+      await runAndWaitForSync(page, () => page.getByRole("menuitem", { name: "Reapply" }).click())
+      const reapplied = toast(page, "Reapplied docs")
+      await expect(reapplied).toContainText("1 commit back on top of HEAD")
+      await expect(findBranchRow(page, "docs")).toHaveCount(1)
+      await expect(unappliedCard(page)).toHaveCount(0)
+      await expect(page.getByTestId("uncommitted-changes-card")).toHaveCount(0)
+
+      // its Undo takes it out again, and the unapplied branch is back
+      await runAndWaitForSync(page, () => reapplied.getByRole("button", { name: "Undo" }).click())
+      await expect(unappliedRow(page, "docs")).toBeVisible()
+      await expect(findBranchRow(page, "docs")).toHaveCount(0)
+    })
+
+    test("should reapply an unapplied branch from the ⋯ of its row, the branch back in the table", async ({ page }) => {
+      const row = unappliedRow(page, "docs")
+      await row.hover()
+      await row.getByRole("button", { name: "More actions for docs" }).click()
+      await runAndWaitForSync(page, () => page.getByRole("menuitem", { name: "Reapply" }).click())
+      await expect(findBranchRow(page, "docs")).toHaveCount(1)
+      await expect(unappliedCard(page)).toHaveCount(0)
+    })
+
+    test("should open the review of an unapplied branch from its menu, from D on its row and from D on a commit of it", async ({ page }) => {
+      const kept = { kind: "unapplied", name: "user-name/unapplied/docs" }
+
+      // Review Changes, the first item of its menu
+      await unappliedRow(page, "docs").click({ button: "right" })
+      const fromMenu = await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Changes" }).click(), 1)
+      expect(fromMenu.title).toBe("Review docs")
+      expect(fromMenu.data).toMatchObject({ chain: ["docs"], kept, focus: { commitId: null } })
+
+      // D on its focused row
+      await unappliedRow(page, "docs").focus()
+      expect((await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 2)).data).toMatchObject({ kept, focus: { commitId: null } })
+
+      // D on a commit of its expanded row: the review of the branch at the commit
+      await unappliedRow(page, "docs").click()
+      // a commit row, not the row of the branch, which names its tip too
+      const commit = unappliedCard(page).locator("tr[data-row-id]:not([data-branch-name])").filter({ hasText: "Document the API" })
+      await commit.hover()
+      const atCommit = await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 3)
+      expect(atCommit.title).toMatch(/^Review docs · [0-9a-f]{8}$/)
+      expect(atCommit.data).toMatchObject({ kept, focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
+    })
+
+    test("should review an unapplied branch on its own base with its actions: Reapply and its push in its title bar, the rest of its menu in its ⋯", async ({ page }) => {
+      await unappliedRow(page, "docs").click({ button: "right" })
+      const fromMenu = await pressAndExpectReviewOpened(page, () => page.getByRole("menuitem", { name: "Review Changes" }).click(), 1)
+
+      // the window: its own commits on the commit it left from; its title bar Reapply and its push, its "⋯" the rest of
+      // its menu, the actions of its own session
+      const window = await openLinkedSubWindow(page, fromMenu)
+      await expect(window.getByTestId("branch-review-stack")).toContainText(/^Unapplied on [0-9a-f]{8}/)
+      await expect(window.getByTestId("branch-review-segment")).toHaveText(["docs1"])
+      await expect(window.getByTestId("review-file-header").first()).toBeVisible()
+      const actions = window.getByTestId("branch-review-actions")
+      await expect(actions.getByRole("button", { name: "Reapply" })).toBeEnabled()
+      await expect(actions.getByRole("button", { name: /^Push/ })).toBeVisible()
+      await actions.getByRole("button", { name: "More actions for docs" }).click()
+      await expect(window.getByRole("menuitem", { name: "Delete Unapplied Branch…" })).toBeVisible()
+    })
+
+    test("should go on as the review of the branch it is again after a Reapply from the title bar of the review of the unapplied branch", async ({ page }) => {
+      // D on its focused row: the review of the unapplied branch
+      await unappliedRow(page, "docs").focus()
+      const window = await openLinkedSubWindow(page, await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 1))
+      await expect(window.getByTestId("branch-review-stack")).toContainText(/^Unapplied on [0-9a-f]{8}/)
+
+      // Reapply runs in the window, in its repository; the review goes on as the review of the branch it is again, which
+      // the window opens itself
+      const reapply = window.getByTestId("branch-review-actions").getByRole("button", { name: "Reapply" })
+      const reviewOfBranch = await pressAndExpectReviewOpened(window, () => runAndWaitForSync(page, () => reapply.click()), 1)
+      await expect(findBranchRow(page, "docs")).toHaveCount(1)
+      await expect(unappliedCard(page)).toHaveCount(0)
+      expect(reviewOfBranch.title).toBe("Review docs")
+      expect(reviewOfBranch.data.kept).toBeUndefined()
+    })
+
+    test("should preview an unapplied branch with Space, its own commits with their messages, and review it from the preview", async ({ page }) => {
+      await unappliedRow(page, "docs").focus()
+      await page.keyboard.press(" ")
+      const preview = page.getByTestId("kept-preview")
+      await expect(preview.getByRole("heading", { name: "docs" })).toBeVisible()
+      await expect(preview.getByTestId("kept-preview-meta")).toHaveText("Unapplied·1 commit")
+      await expect(preview.getByTestId("kept-preview-commit")).toHaveCount(1)
+      await expect(preview.getByTestId("kept-preview-commit")).toContainText("Document the API")
+      // D: the review of the kept branch, the preview closes once the window opened
+      expect((await pressAndExpectReviewOpened(page, () => page.keyboard.press("d"), 1)).data).toMatchObject({
+        kind: "branch",
+        chain: ["docs"],
+        kept: { kind: "unapplied", name: "user-name/unapplied/docs" },
+      })
+      await expectClosed(preview)
+      // the review button of a commit: the review at that commit
+      await unappliedRow(page, "docs").focus()
+      await page.keyboard.press(" ")
+      expect((await pressAndExpectReviewOpened(page, () => preview.getByTestId("kept-preview-commit-review").click(), 2)).data.focus.commitId).toMatch(/^[0-9a-f]{40}$/)
+    })
+
+    test("should keep an unapplied branch whose reapply conflicts and say why", async ({ page }) => {
+      // the reapply is the next rewrite of the engine the page runs
+      await routeCommandError(
+        page,
+        "execute",
+        {
+          code: "reapply_conflict",
+          message: "Document the API (1a2b3c4d) of user-name/unapplied/docs conflicts with HEAD in docs.md: nothing was changed",
+          details: { type: "conflict", commits: ["1a2b3c4d".padEnd(40, "0")], paths: ["docs.md"] },
+        },
+        { times: 1 },
+      )
+      await unappliedRow(page, "docs").click({ button: "right" })
+      await page.getByRole("menuitem", { name: "Reapply" }).click()
+      await expect(toast(page, "Cannot reapply docs")).toContainText("conflicts with HEAD in docs.md")
+      await expect(unappliedRow(page, "docs")).toBeVisible()
+    })
   })
 })

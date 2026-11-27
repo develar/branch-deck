@@ -604,6 +604,8 @@ pub enum RepositoryTemplate {
   StackProblems,
   #[serde(rename = "branch_filter")]
   BranchFilter,
+  #[serde(rename = "branch_filter_unapplied")]
+  BranchFilterUnapplied,
   #[serde(rename = "archived_branches")]
   ArchivedBranches,
   #[serde(rename = "amend_changes")]
@@ -693,6 +695,7 @@ impl RepositoryTemplate {
       Self::LandingNeedsFork => "landing_needs_fork",
       Self::StackProblems => "stack_problems",
       Self::BranchFilter => "branch_filter",
+      Self::BranchFilterUnapplied => "branch_filter_unapplied",
       Self::ArchivedBranches => "archived_branches",
       Self::AmendChanges => "amend_changes",
       Self::BehindUpstream => "behind_upstream",

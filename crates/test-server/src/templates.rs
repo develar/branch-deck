@@ -11,14 +11,16 @@
 //! is built (`presynced: false`).
 
 use git_executor::git_command_executor::GitCommandExecutor;
+use history_rewrite::repository_lock::RewriteOptions;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 use sync_core::sync::{IssueConfigSource, SyncOptions, sync_branches};
+use sync_core::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use sync_utils::fs_retry;
 use sync_utils::span::in_current_span;
-use test_utils::repo_template::templates;
+use test_utils::repo_template::{RepoTemplate, templates};
 use tokio::sync::OnceCell;
 use tracing::Instrument;
 
@@ -83,6 +85,7 @@ const TEMPLATES: &[(&str, TemplateBuild)] = &[
   ("landing_needs_fork", |path| templates::landing_needs_fork().build(path)),
   ("stack_problems", |path| templates::stack_problems().build(path)),
   ("branch_filter", |path| templates::branch_filter().build(path)),
+  ("branch_filter_unapplied", |path| with_unapplied(templates::branch_filter(), path, "docs")),
   ("empty-non-git", |path| templates::empty_non_git().build(path)),
   ("empty_git", |path| templates::empty_git().build(path)),
   ("bare", |path| templates::bare().build(path)),
@@ -215,13 +218,7 @@ fn synced_template(dir: &Path, name: &str, raw: &Path, runtime: &tokio::runtime:
   }
   let building = dir.join(format!(".{name}{SYNCED}.{}.building", std::process::id()));
   let global_config = dir.join(format!(".{name}{SYNCED}.{}.gitconfig", std::process::id()));
-  std::fs::write(&global_config, crate::TEST_IDENTITY)?;
-  let git = GitCommandExecutor::new()
-    .with_env("GIT_CONFIG_GLOBAL", &global_config.to_string_lossy())
-    .with_env("GIT_CONFIG_NOSYSTEM", "1");
-  let synced = sync_once(&git, raw, &building, runtime);
-  let _ = fs_retry::remove_file(&global_config);
-  match synced {
+  match with_test_identity(&global_config, |git| sync_once(git, raw, &building, runtime)) {
     Ok(true) => {}
     Ok(false) => return Ok(raw.to_path_buf()),
     Err(e) => {
@@ -259,19 +256,67 @@ fn sync_once(git: &GitCommandExecutor, raw: &Path, building: &Path, runtime: &to
   let path = building
     .to_str()
     .ok_or_else(|| anyhow::anyhow!("a template path that is no UTF-8: {}", building.display()))?;
+  sync_as_first(git, path, &prefix, runtime)?;
+  remove_files_of_branch_deck(building)?;
+  tracing::info!(elapsed_ms = started.elapsed().as_millis(), "synced the template {}", raw.display());
+  Ok(true)
+}
+
+/// `template` built at `path` with `branch` unapplied, as `brd sync` and then `brd unapply <branch>` in a terminal leave
+/// it: the sync builds the virtual branch the unapply needs, the unapply takes its commits and their files out of HEAD and
+/// keeps it as `{prefix}/unapplied/<branch>` (`unapply_branch_core`). A test of what is done with an unapplied branch
+/// starts from it with no Unapply of its own and no sync for it, and the copy synced once (`synced`) builds the copies
+/// of the commits the unapply rewrote, so its first sync builds none. The files the two leave in `$GIT_DIR/branch-deck/`
+/// go, as from a copy synced once
+fn with_unapplied(template: RepoTemplate, path: &Path, branch: &str) -> anyhow::Result<()> {
+  template.build(path)?;
+  let repo = path.to_str().ok_or_else(|| anyhow::anyhow!("a template path that is no UTF-8: {}", path.display()))?;
+  with_test_identity(&path.with_extension("gitconfig"), |git| {
+    let prefix = crate::state::read_local_branch_prefix(git, repo)?.prefix;
+    // a template builds on a blocking thread of the server's runtime
+    sync_as_first(git, repo, &prefix, &tokio::runtime::Handle::current())?;
+    let params = UnapplyBranchParams {
+      repository_path: repo.to_string(),
+      branch_name: branch.to_string(),
+      original_commit_ids: None,
+      dry_run: false,
+    };
+    unapply_branch_core(git, params, &prefix, &RewriteOptions::default())
+  })?;
+  remove_files_of_branch_deck(path)
+}
+
+/// Runs `run` with the git of a test repository: the identity of `crate::TEST_IDENTITY` in `global_config`, written for
+/// it and removed after it, and no system config, so the global config of the user (its signing) takes no part
+fn with_test_identity<T>(global_config: &Path, run: impl FnOnce(&GitCommandExecutor) -> anyhow::Result<T>) -> anyhow::Result<T> {
+  std::fs::write(global_config, crate::TEST_IDENTITY)?;
+  let git = GitCommandExecutor::new()
+    .with_env("GIT_CONFIG_GLOBAL", &global_config.to_string_lossy())
+    .with_env("GIT_CONFIG_NOSYSTEM", "1");
+  let result = run(&git);
+  let _ = fs_retry::remove_file(global_config);
+  result
+}
+
+/// The sync of the repository at `path` under `prefix` as the first sync of a session of the server syncs it
+fn sync_as_first(git: &GitCommandExecutor, path: &str, prefix: &str, runtime: &tokio::runtime::Handle) -> anyhow::Result<()> {
   let options = SyncOptions {
     issue_config: IssueConfigSource::Load,
     lost_bindings: Some(&trial_check::lost_bindings::REPLAY_RULE),
     ..SyncOptions::default()
   };
-  runtime.block_on(sync_branches(git, path, &prefix, crate::UnreadEvents, options))?;
-  match fs_retry::remove_dir_all(building.join(".git").join("branch-deck")) {
-    Ok(()) => {}
-    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-    Err(e) => return Err(e.into()),
+  runtime.block_on(sync_branches(git, path, prefix, crate::UnreadEvents, options))?;
+  Ok(())
+}
+
+/// Removes what a sync and a rewrite leave in `$GIT_DIR/branch-deck/` of the repository at `repo`: the mark of a sync,
+/// which the app reads as a `brd sync` of a terminal, the object cache, the report of what landed
+fn remove_files_of_branch_deck(repo: &Path) -> anyhow::Result<()> {
+  match fs_retry::remove_dir_all(repo.join(".git").join("branch-deck")) {
+    Ok(()) => Ok(()),
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+    Err(e) => Err(e.into()),
   }
-  tracing::info!(elapsed_ms = started.elapsed().as_millis(), "synced the template {}", raw.display());
-  Ok(true)
 }
 
 /// The template `name` in `dir`, built by `build` when it is not there: into a directory of this process first, renamed

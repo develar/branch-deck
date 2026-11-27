@@ -99,3 +99,22 @@ async fn a_template_synced_once_has_its_virtual_branches_and_notes_and_no_mark_o
     "a route test copies the template as it is built"
   );
 }
+
+/// The template of an unapplied branch is its template after `brd sync` and `brd unapply docs`: docs is kept as an
+/// unapplied branch, its commit and its file out of HEAD, and its copy synced once has the virtual branches of the other
+/// ten and none of the files the sync and the unapply leave in `$GIT_DIR/branch-deck/`
+#[tokio::test(flavor = "multi_thread")]
+async fn the_template_of_an_unapplied_branch_keeps_it_out_of_head_and_its_copy_synced_once_builds_the_others() {
+  let cache = tempfile::tempdir().unwrap();
+  let templates = Templates::presyncing(cache.path().to_path_buf());
+  let synced = templates.synced("branch_filter_unapplied").await.unwrap();
+  let raw = templates.path("branch_filter_unapplied").await.unwrap();
+  for path in [&raw, &synced] {
+    assert_eq!(refs(path, "refs/heads/user-name/unapplied/"), ["refs/heads/user-name/unapplied/docs"], "{path:?}");
+    assert!(!path.join("docs.md").exists(), "{path:?}");
+    assert!(!path.join(".git/branch-deck").exists(), "{path:?}");
+  }
+  let virtual_branches = refs(&synced, "refs/heads/user-name/virtual/");
+  assert_eq!(virtual_branches.len(), 10, "{virtual_branches:?}");
+  assert!(!virtual_branches.contains(&"refs/heads/user-name/virtual/docs".to_string()), "{virtual_branches:?}");
+}

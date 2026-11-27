@@ -295,7 +295,7 @@ in the repository of the review whatever the main window shows (`getSelectedProj
 #### Scenario: The actions of a kept branch
 - **WHEN** the window reviews an unapplied branch
 - **THEN** its title bar and "⋯" hold the actions of the kept branch from the window's own session
-  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch on its own base with its actions, its Reapply going on as the review of the branch it is again`)
+  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch on its own base with its actions: Reapply and its push in its title bar, the rest of its menu in its ⋯`)
 
 ### Requirement: Actions: The window runs each action itself but a form under a row
 
@@ -533,7 +533,7 @@ baseline.
 - **WHEN** the review window of an unapplied branch opens
 - **THEN** it shows one part of its own commits, the stack bar saying "Unapplied on 1a2b3c4d"
 - **AND** its diff is against that commit, not against today's baseline
-  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch on its own base with its actions, its Reapply going on as the review of the branch it is again`)
+  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch on its own base with its actions: Reapply and its push in its title bar, the rest of its menu in its ⋯`)
 
 ### Requirement: Kept branches: D on a commit of the expanded row opens the review at it
 
@@ -559,7 +559,8 @@ typed delete at the row); an archived branch has only its "⋯" (its delete, the
 - **WHEN** the window reviews an unapplied branch
 - **THEN** its title bar holds Reapply and its push, its "⋯" the rest of its menu
 - **AND** Reapply runs in the window
-  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch on its own base with its actions, its Reapply going on as the review of the branch it is again`)
+  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch on its own base with its actions: Reapply and its push in its title bar, the rest of its menu in its ⋯`)
+  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should go on as the review of the branch it is again after a Reapply from the title bar of the review of the unapplied branch`)
 
 #### Scenario: An archived branch
 - **WHEN** the window reviews an archived branch
@@ -622,7 +623,7 @@ it itself, the kept branch into its history).
 #### Scenario: Reapply from the window
 - **WHEN** the user runs Reapply from the title bar of the window, and a sync builds the branch
 - **THEN** the window opens the review of the branch it is again itself, the kept branch into its history
-  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch on its own base with its actions, its Reapply going on as the review of the branch it is again`)
+  [@test] tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should go on as the review of the branch it is again after a Reapply from the title bar of the review of the unapplied branch`)
 
 ### Requirement: Kept branches: After a delete the review keeps what it read
 
