@@ -13,7 +13,7 @@
 //! - the interdiff of a candidate and its twin (`interdiffs`): what a drop of the candidate loses
 //! - the changed lines of a commit as one id (`change_ids`), whatever its parent: the interdiff of a review
 
-use crate::autosquash_targets::target_of_each_fixup;
+use crate::autosquash_targets::fixups_by_target;
 use crate::commit_list::parse_single_commit;
 use crate::commit_utils::COMMIT_RECORD_FORMAT;
 use crate::merge_tree_output::parse_merge_tree_batch;
@@ -366,13 +366,12 @@ fn patch_ids(
   context: PatchContext,
   mode: PatchIdMode,
 ) -> Result<HashMap<String, String>> {
-  let input = lines_of(commits);
   let mut args = vec!["diff-tree", "--stdin", "-p"];
   if context == PatchContext::None {
     args.push("-U0");
   }
   args.extend(["--no-renames", "--no-ext-diff", "--no-textconv"]);
-  let patches = git_executor.cmd(&args, repo_path).stdin(input.as_bytes()).bytes()?;
+  let patches = diff_tree_stdin(git_executor, repo_path, &args, commits)?;
   let mode = match mode {
     PatchIdMode::Stable => "--stable",
     PatchIdMode::Verbatim => "--verbatim",
@@ -385,6 +384,11 @@ fn patch_ids(
       .filter_map(|line| line.split_once(' ').map(|(patch, commit)| (commit.to_string(), patch.to_string())))
       .collect(),
   )
+}
+
+/// The output of `diff-tree <args>` (`--stdin` among them) for `commits`, one per line of its stdin
+fn diff_tree_stdin(git_executor: &GitCommandExecutor, repo_path: &str, args: &[&str], commits: impl IntoIterator<Item = impl AsRef<str>>) -> Result<Vec<u8>> {
+  git_executor.cmd(args, repo_path).stdin(lines_of(commits).as_bytes()).bytes()
 }
 
 /// One line per item: the stdin of a `--stdin` git
@@ -529,46 +533,71 @@ pub fn present_by_patch_id(git_executor: &GitCommandExecutor, repo_path: &str, u
   pair_by_patch_id(git_executor, repo_path, local, &equivalent)
 }
 
-/// A local commit with a counterpart upstream by identity only: nothing proves that the upstream has its change (an
-/// amend after the push, a robot that folded its fixups in, an independent fix), so it is never left out by itself. A
-/// resolve session keeps it in its state: its round offers `--landed`
+/// A local commit with a counterpart upstream that nothing proves (`CandidateBy`), so it is never left out by itself: by
+/// its identity (an amend after the push, a robot that folded its fixups in, an independent fix), or after a conflict by
+/// the changed lines of the set of commits it starts (the squash of a pull request). A resolve session keeps it in its
+/// state: the round of each commit of its unit offers `--landed`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LandedCandidate {
   pub commit: String,
-  /// The upstream commit with its `CommitKey`
+  /// The upstream commit with its `CommitKey`, or with the changed lines of the unit
   pub upstream: String,
-  /// The local fixups of the commit (`autosquash_targets`) that no proof left out, oldest first: a robot that
-  /// autosquashes landed the commit with them folded in
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
-  pub fixups: Vec<String>,
+  /// The later local commits it landed with, oldest first, that no proof left out: by its identity its fixups
+  /// (`autosquash_targets`), as a robot that autosquashes folds them in; by changed lines the other commits of its set
+  #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "fixups")]
+  pub landed_with: Vec<String>,
+  #[serde(default, skip_serializing_if = "CandidateBy::is_key")]
+  pub by: CandidateBy,
+}
+
+/// What pairs a candidate with its upstream commit
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateBy {
+  /// The same `CommitKey`
+  #[default]
+  Key,
+  /// After a conflict: the changed lines of its unit, summed in order, equal those of the upstream commit
+  /// (`landed_by_lines`), under another key, e.g. a pull request squashed by GitHub
+  ChangedLines,
+}
+
+impl CandidateBy {
+  #[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
+  const fn is_key(&self) -> bool {
+    matches!(self, Self::Key)
+  }
 }
 
 impl LandedCandidate {
-  /// The last of the commit and its local fixups: what leaving it out has to keep is the change from its parent to there
+  /// The last commit of its unit: what leaving it out has to keep is the change from its parent to there
   pub fn last(&self) -> &str {
-    self.fixups.last().unwrap_or(&self.commit)
+    self.landed_with.last().unwrap_or(&self.commit)
   }
 
-  /// The commit and its fixups, oldest first: the local change that its upstream commit may carry
+  /// The commit and the commits it landed with, oldest first: the local change that its upstream commit may carry
   pub fn unit(&self) -> impl Iterator<Item = &str> {
-    std::iter::once(self.commit.as_str()).chain(self.fixups.iter().map(String::as_str))
+    std::iter::once(self.commit.as_str()).chain(self.landed_with.iter().map(String::as_str))
+  }
+
+  /// Whether leaving out the commit alone is a set to try: by its identity, a fixup made after the push may be what its
+  /// upstream commit lacks; by changed lines only the whole unit equals it
+  fn may_land_alone(&self) -> bool {
+    self.by == CandidateBy::Key && !self.landed_with.is_empty()
   }
 }
 
 /// The local commits of an update paired with the upstream commits that carry their change
 /// (openspec/specs/repository/landed-commits/spec.md, "The proof"): one to one, each upstream commit pairs with at most one local
-/// commit, in the order of the local commits; merge commits never pair
+/// commit, or one set of them, in the order of the local commits; merge commits never pair
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LandedPairing {
   /// The local commits, oldest first
   pub local: Vec<String>,
   /// The proven pairs, in the order of `local`: a replay leaves them out
   pub drops: Vec<LandedDrop>,
-  /// The pairs by identity alone, in the order of `local`
+  /// The pairs nothing proves (`CandidateBy`), in the order of `local`
   pub candidates: Vec<LandedCandidate>,
-  /// The candidates with their local fixups that are no drop, oldest first: a robot that autosquashes landed a target
-  /// with its fixups folded in. A resolve session marks them as likely landed
-  pub with_fixups: Vec<String>,
 }
 
 impl LandedPairing {
@@ -578,38 +607,70 @@ impl LandedPairing {
       local,
       drops: Vec::new(),
       candidates: Vec::new(),
-      with_fixups: Vec::new(),
     }
   }
 
-  /// The sets of local commits that a replay which still conflicts without the drops tries to leave out too: the
-  /// candidates with their fixups, then the candidates alone. A fixup made after the push makes the first set lose its
-  /// change, and the second set is tried
+  /// The commits of the units of the candidates, in the order of `local`: what the upstream likely has
+  pub fn likely_landed(&self) -> Vec<String> {
+    let likely: HashSet<&str> = self.candidates.iter().flat_map(LandedCandidate::unit).collect();
+    self.local.iter().filter(|commit| likely.contains(commit.as_str())).cloned().collect()
+  }
+
+  /// The sets of local commits that a replay which still conflicts without the drops tries to leave out too: the units
+  /// of the candidates, then the candidates by identity alone with the units by changed lines. A fixup made after the
+  /// push makes the first set lose its change, and the second set is tried
   pub fn candidate_sets(&self) -> Vec<Vec<String>> {
-    let alone: Vec<String> = self.candidates.iter().map(|candidate| candidate.commit.clone()).collect();
-    match alone.len() {
-      0 => Vec::new(),
-      count if count == self.with_fixups.len() => vec![alone],
-      _ => vec![self.with_fixups.clone(), alone],
+    if self.candidates.is_empty() {
+      return Vec::new();
     }
+    let all = self.likely_landed();
+    if !self.candidates.iter().any(LandedCandidate::may_land_alone) {
+      return vec![all];
+    }
+    let second: HashSet<&str> = self
+      .candidates
+      .iter()
+      .flat_map(|candidate| {
+        let whole = if candidate.by == CandidateBy::Key { 0 } else { candidate.landed_with.len() };
+        candidate.unit().take(whole + 1)
+      })
+      .collect();
+    let second = self.local.iter().filter(|commit| second.contains(commit.as_str())).cloned().collect();
+    vec![all, second]
   }
 }
 
 /// Pair the local commits of `scope` with the upstream commits since the merge base (`LandedPairing`): the pairing
-/// before the replay (`pair_before_replay`), then the rest by their patch id (`with_patch_identical`), the pairing of an
+/// before the replay (`pair_before_replay`), then the pairing after a conflict (`pair_after_conflict`), the pairing of an
 /// update whose replay conflicted.
 pub fn pair_landed(git_executor: &GitCommandExecutor, repo_path: &str, scope: LandedScope<'_>) -> Result<LandedPairing> {
   let reads = read_landed(git_executor, repo_path, scope)?;
-  let proven = pair_before_replay(git_executor, repo_path, &reads)?;
-  with_patch_identical(git_executor, repo_path, scope, &reads, proven)
+  let before = pair_before_replay(git_executor, repo_path, &reads)?;
+  pair_after_conflict(git_executor, repo_path, scope, &reads, before)
+}
+
+/// The sets of paths that commits change against their first parents (`changed_path_sets`), by commit
+pub(crate) type PathSets = HashMap<String, BTreeSet<Vec<u8>>>;
+
+/// The pairing before the replay (`pair_before_replay`) with what it read that the pairing after a conflict reads again
+#[derive(Debug, Clone, Default)]
+pub struct BeforeReplay {
+  pub pairing: LandedPairing,
 }
 
 /// The pairing of every check of an update before its replay: the twins (`pair_twins`), then the commits of the same
 /// patch under another key by the same authors (`with_same_patch_by_authors`). `git replay` drops a commit only when it
 /// becomes empty, and the merge of a commit the upstream has onto other context can add its lines a second time
-pub fn pair_before_replay(git_executor: &GitCommandExecutor, repo_path: &str, reads: &LandedReads) -> Result<LandedPairing> {
+pub fn pair_before_replay(git_executor: &GitCommandExecutor, repo_path: &str, reads: &LandedReads) -> Result<BeforeReplay> {
   let twins = pair_twins(git_executor, repo_path, reads)?;
-  with_same_patch_by_authors(git_executor, repo_path, reads, twins)
+  let (pairing, _paths) = with_same_patch_by_authors(git_executor, repo_path, reads, twins)?;
+  Ok(BeforeReplay { pairing })
+}
+
+/// The pairing of an update whose replay conflicted, after the pairing before it: the commits of the same patch by any
+/// author (`with_patch_identical`)
+pub fn pair_after_conflict(git_executor: &GitCommandExecutor, repo_path: &str, scope: LandedScope<'_>, reads: &LandedReads, before: BeforeReplay) -> Result<LandedPairing> {
+  with_patch_identical(git_executor, repo_path, scope, reads, before.pairing)
 }
 
 /// Pair each local commit of `reads` with the upstream commit of its `CommitKey`, one to one, the oldest local commit of
@@ -673,7 +734,7 @@ pub fn pair_twins(git_executor: &GitCommandExecutor, repo_path: &str, reads: &La
 /// none without commits on either side, then the processes of `pair_by_patch_id` only for the commits whose set of paths
 /// the other side has. A copy by another author is left to `with_patch_identical`, whose walk of the whole upstream
 /// costs seconds in a monorepo
-pub fn with_same_patch_by_authors(git_executor: &GitCommandExecutor, repo_path: &str, reads: &LandedReads, twins: LandedPairing) -> Result<LandedPairing> {
+fn with_same_patch_by_authors(git_executor: &GitCommandExecutor, repo_path: &str, reads: &LandedReads, twins: LandedPairing) -> Result<(LandedPairing, PathSets)> {
   let taken: HashSet<&str> = twins.drops.iter().flat_map(|drop| [drop.commit.as_str(), drop.upstream.as_str()]).collect();
   let local: Vec<&str> = twins.local.iter().map(String::as_str).filter(|commit| !taken.contains(commit)).collect();
   let upstream: Vec<&str> = reads
@@ -683,7 +744,7 @@ pub fn with_same_patch_by_authors(git_executor: &GitCommandExecutor, repo_path: 
     .filter(|commit| !taken.contains(commit))
     .collect();
   if local.is_empty() || upstream.is_empty() {
-    return Ok(twins);
+    return Ok((twins, PathSets::new()));
   }
   let paths = changed_path_sets(git_executor, repo_path, local.iter().chain(&upstream))?;
   let local_sets: HashSet<&BTreeSet<Vec<u8>>> = local.iter().filter_map(|commit| paths.get(*commit)).collect();
@@ -697,19 +758,16 @@ pub fn with_same_patch_by_authors(git_executor: &GitCommandExecutor, repo_path: 
     .filter(|commit| paths.get(*commit).is_some_and(|set| upstream_sets.contains(set)))
     .collect();
   let found = pair_by_patch_id(git_executor, repo_path, &local, &upstream)?;
-  Ok(with_found(reads, twins, found))
+  Ok((with_found(reads, twins, found), paths))
 }
 
 /// The set of paths each commit changes against its first parent, by commit: one `diff-tree --stdin -r -z --name-only
 /// --no-renames`, whose output names a commit before its paths; a commit without changes has none
-fn changed_path_sets(git_executor: &GitCommandExecutor, repo_path: &str, commits: impl IntoIterator<Item = impl AsRef<str>>) -> Result<HashMap<String, BTreeSet<Vec<u8>>>> {
+fn changed_path_sets(git_executor: &GitCommandExecutor, repo_path: &str, commits: impl IntoIterator<Item = impl AsRef<str>>) -> Result<PathSets> {
   let commits: Vec<String> = commits.into_iter().map(|commit| commit.as_ref().to_string()).collect();
-  let output = git_executor
-    .cmd(&["diff-tree", "--stdin", "-r", "-z", "--name-only", "--no-renames"], repo_path)
-    .stdin(lines_of(&commits).as_bytes())
-    .bytes()?;
+  let output = diff_tree_stdin(git_executor, repo_path, &["diff-tree", "--stdin", "-r", "-z", "--name-only", "--no-renames"], &commits)?;
   let ids: HashSet<&[u8]> = commits.iter().map(String::as_bytes).collect();
-  let mut sets: HashMap<String, BTreeSet<Vec<u8>>> = HashMap::new();
+  let mut sets = PathSets::new();
   let mut current: Option<&[u8]> = None;
   for field in output.split(|&b| b == 0).filter(|field| !field.is_empty()) {
     // a commit of the input names the paths after it: no path is the full id of a commit of the input
@@ -744,7 +802,7 @@ fn with_found(reads: &LandedReads, twins: LandedPairing, found: Vec<LandedDrop>)
 /// proof took (`patch_identical`, e.g. a copy by another author). They are left out as `patch_id`; a candidate whose commit or
 /// upstream commit they take is a candidate no more. One `rev-list --cherry-mark`, the processes of `pair_by_patch_id`
 /// only for marked commits
-pub fn with_patch_identical(git_executor: &GitCommandExecutor, repo_path: &str, scope: LandedScope<'_>, reads: &LandedReads, twins: LandedPairing) -> Result<LandedPairing> {
+fn with_patch_identical(git_executor: &GitCommandExecutor, repo_path: &str, scope: LandedScope<'_>, reads: &LandedReads, twins: LandedPairing) -> Result<LandedPairing> {
   if twins.local.is_empty() {
     return Ok(twins);
   }
@@ -760,33 +818,18 @@ fn pairing_of(reads: &LandedReads, mut drops: Vec<LandedDrop>, candidates: &[(&s
   let position: HashMap<&str, usize> = pairing.local.iter().enumerate().map(|(index, id)| (id.as_str(), index)).collect();
   drops.sort_by_key(|drop| position.get(drop.commit.as_str()).copied());
 
-  let target_of = target_of_each_fixup(local);
-  let candidate_ids: HashSet<&str> = candidates.iter().map(|(commit, _)| *commit).collect();
   let dropped: HashSet<&str> = drops.iter().map(|drop| drop.commit.as_str()).collect();
-  let mut fixups: HashMap<&str, Vec<String>> = HashMap::new();
-  for commit in local {
-    let target = target_of.get(&commit.id).map_or(commit.id.as_str(), String::as_str);
-    if candidate_ids.contains(target) && !dropped.contains(commit.id.as_str()) {
-      pairing.with_fixups.push(commit.id.clone());
-      if target != commit.id {
-        fixups.entry(target).or_default().push(commit.id.clone());
-      }
-    }
-  }
+  let mut fixups = fixups_by_target(local, |commit| !dropped.contains(commit));
   pairing.candidates = candidates
     .iter()
     .map(|(commit, upstream)| LandedCandidate {
       commit: (*commit).to_string(),
       upstream: (*upstream).to_string(),
-      fixups: fixups.remove(commit).unwrap_or_default(),
+      landed_with: fixups.remove(commit).unwrap_or_default(),
+      by: CandidateBy::Key,
     })
     .collect();
-  debug!(
-    drops = drops.len(),
-    candidates = pairing.candidates.len(),
-    with_fixups = pairing.with_fixups.len(),
-    "landed pairing"
-  );
+  debug!(drops = drops.len(), candidates = pairing.candidates.len(), "landed pairing");
   pairing.drops = drops;
   pairing
 }
@@ -856,7 +899,7 @@ const MAX_INTERDIFF_PATHS: usize = 20;
 
 /// The net changed lines of one side of a twin, by path: each line with its count, `+<line>` with a negative count for
 /// a removed line, in the order of their first change
-type NetLines = BTreeMap<String, Vec<(String, i64)>>;
+pub(crate) type NetLines = BTreeMap<String, Vec<(String, i64)>>;
 
 /// The interdiff of each `(local commits, upstream commit)` pair: the changed lines of the diffs without context
 /// (`-U0`) of each side, the local commits summed in order (a line that one adds and a later one removes cancels), then
@@ -881,29 +924,12 @@ fn interdiffs_cut(git_executor: &GitCommandExecutor, repo_path: &str, pairs: &[(
     .flat_map(|(local, upstream)| local.iter().copied().chain([*upstream]))
     .filter(|commit| seen.insert(*commit))
     .collect();
-  let patches = git_executor
-    .cmd(
-      &["diff-tree", "--stdin", "-p", "-U0", "--full-index", "--no-renames", "--no-ext-diff", "--no-textconv"],
-      repo_path,
-    )
-    .stdin(lines_of(&commits).as_bytes())
-    .bytes()?;
-  let changes = changed_lines(&patches);
-  let side = |commits: &[&str]| {
-    let mut net = NetLines::new();
-    for (path, lines) in commits.iter().filter_map(|commit| changes.get(*commit)).flatten() {
-      let entries = net.entry(path.clone()).or_default();
-      for line in lines {
-        add_line(entries, line);
-      }
-    }
-    net
-  };
+  let changes = read_changed_lines(git_executor, repo_path, &commits)?;
   Ok(
     pairs
       .iter()
       .map(|(local, upstream)| {
-        let (local, upstream) = (side(local), side(&[upstream]));
+        let (local, upstream) = (net_of(&changes, local), net_of(&changes, &[upstream]));
         Interdiff {
           local_only: only_in(&local, &upstream, limits),
           upstream_only: only_in(&upstream, &local, limits),
@@ -911,6 +937,36 @@ fn interdiffs_cut(git_executor: &GitCommandExecutor, repo_path: &str, pairs: &[(
       })
       .collect(),
   )
+}
+
+/// The changed lines of each commit, by commit and path (`changed_lines`)
+pub(crate) type ChangedLines = HashMap<String, BTreeMap<String, Vec<String>>>;
+
+/// The changed lines of `commits` against their first parents (`changed_lines`): one
+/// `diff-tree --stdin -p -U0 --full-index`, none without commits
+pub(crate) fn read_changed_lines(git_executor: &GitCommandExecutor, repo_path: &str, commits: &[&str]) -> Result<ChangedLines> {
+  if commits.is_empty() {
+    return Ok(HashMap::new());
+  }
+  let patches = diff_tree_stdin(
+    git_executor,
+    repo_path,
+    &["diff-tree", "--stdin", "-p", "-U0", "--full-index", "--no-renames", "--no-ext-diff", "--no-textconv"],
+    commits,
+  )?;
+  Ok(changed_lines(&patches))
+}
+
+/// The net changed lines of `commits` summed in order: a line that one adds and a later one removes cancels
+pub(crate) fn net_of(changes: &ChangedLines, commits: &[&str]) -> NetLines {
+  let mut net = NetLines::new();
+  for (path, lines) in commits.iter().filter_map(|commit| changes.get(*commit)).flatten() {
+    let entries = net.entry(path.clone()).or_default();
+    for line in lines {
+      add_line(entries, line);
+    }
+  }
+  net
 }
 
 /// Adds a changed line to the net lines of a path: `+x` after `-x` (or the reverse) cancels, as a later commit that
@@ -955,8 +1011,8 @@ fn only_in(one: &NetLines, other: &NetLines, (max_paths, max_lines): (usize, usi
 /// The changed lines of each commit of a `diff-tree --stdin -p -U0 --full-index` output, by commit and path: `+<line>`
 /// and `-<line>` of the hunks, `mode <old> <new>` of a mode change and `binary <blob>` of a binary file (its new blob,
 /// zeros for a delete)
-fn changed_lines(patches: &[u8]) -> HashMap<String, BTreeMap<String, Vec<String>>> {
-  let mut by_commit: HashMap<String, BTreeMap<String, Vec<String>>> = HashMap::new();
+fn changed_lines(patches: &[u8]) -> ChangedLines {
+  let mut by_commit = ChangedLines::new();
   let (mut commit, mut path, mut old_mode, mut new_blob) = (String::new(), String::new(), String::new(), String::new());
   let mut in_hunk = false;
   for line in patches.split(|&b| b == b'\n') {
@@ -1046,14 +1102,12 @@ const GITLINK_MODE: &str = "160000";
 /// The `RawChange`s of each commit against its first parent, sorted by path: one
 /// `diff-tree --stdin -r -z --raw --numstat`, whose numstat tells a binary file (`-` for the counts)
 fn raw_changes(git_executor: &GitCommandExecutor, repo_path: &str, commits: impl IntoIterator<Item = impl AsRef<str>>) -> Result<HashMap<String, Vec<RawChange>>> {
-  let input = lines_of(commits);
-  let output = git_executor
-    .cmd(
-      &["diff-tree", "--stdin", "-r", "-z", "--no-renames", "--raw", "--numstat", "--no-ext-diff", "--no-textconv"],
-      repo_path,
-    )
-    .stdin(input.as_bytes())
-    .bytes()?;
+  let output = diff_tree_stdin(
+    git_executor,
+    repo_path,
+    &["diff-tree", "--stdin", "-r", "-z", "--no-renames", "--raw", "--numstat", "--no-ext-diff", "--no-textconv"],
+    commits,
+  )?;
   // per commit: `<commit>\0`, then `:<old mode> <new mode> <old id> <new id> <status>\0<path>\0` per path, then
   // `<added>\t<deleted>\t<path>\0` per path, `-` for the counts of a binary file
   let mut entries: HashMap<String, Vec<(RawChange, String)>> = HashMap::new();

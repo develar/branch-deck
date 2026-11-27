@@ -1,6 +1,6 @@
 use crate::landed_pairing::{
-  CommitKey, Interdiff, LandedCandidate, LandedDrop, LandedPairing, LandedProof, LandedScope, PathLines, interdiffs, pair_before_replay, pair_landed, pair_twins, read_landed,
-  read_landed_with_paths, walk_commits, with_patch_identical,
+  CandidateBy, CommitKey, Interdiff, LandedCandidate, LandedDrop, LandedPairing, LandedProof, LandedScope, PathLines, interdiffs, pair_after_conflict, pair_before_replay,
+  pair_landed, pair_twins, read_landed, read_landed_with_paths, walk_commits,
 };
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -67,9 +67,9 @@ fn pairings(repo: &TestRepo) -> (LandedPairing, LandedPairing) {
   in_scope(repo, |scope| {
     let reads = read_landed(repo.git_executor(), repo.path_str(), scope).unwrap();
     let before = pair_before_replay(repo.git_executor(), repo.path_str(), &reads).unwrap();
-    let all = with_patch_identical(repo.git_executor(), repo.path_str(), scope, &reads, before.clone()).unwrap();
+    let all = pair_after_conflict(repo.git_executor(), repo.path_str(), scope, &reads, before.clone()).unwrap();
     assert_eq!(all, pair_landed(repo.git_executor(), repo.path_str(), scope).unwrap());
-    (all, before)
+    (all, before.pairing)
   })
 }
 
@@ -267,7 +267,7 @@ fn the_same_patch_of_the_author_is_looked_for_only_among_its_sets_of_paths() {
   let reads = in_scope(&repo, |scope| read_landed(repo.git_executor(), repo.path_str(), scope).unwrap());
   let git = counting();
   let before = pair_before_replay(&git, repo.path_str(), &reads).unwrap();
-  assert_eq!(before, LandedPairing::unpaired(vec![repo.rev_parse("local").unwrap()]));
+  assert_eq!(before.pairing, LandedPairing::unpaired(vec![repo.rev_parse("local").unwrap()]));
   assert_eq!(processes(&git), [("diff-tree".to_string(), 1)]);
 }
 
@@ -314,10 +314,11 @@ fn an_amend_after_the_push_is_a_candidate_with_its_fixups() {
     [LandedCandidate {
       commit: local[0].clone(),
       upstream: upstream[0].clone(),
-      fixups: vec![local[2].clone()],
+      landed_with: vec![local[2].clone()],
+      by: CandidateBy::Key,
     }]
   );
-  assert_eq!(pairing.with_fixups, [local[0].clone(), local[2].clone()]);
+  assert_eq!(pairing.likely_landed(), [local[0].clone(), local[2].clone()]);
   assert_eq!(pairing.candidate_sets(), [vec![local[0].clone(), local[2].clone()], vec![local[0].clone()]]);
 }
 
@@ -329,7 +330,7 @@ fn a_fixup_of_a_proven_twin_stays_out_of_the_pairing() {
   let upstream = twin_after(&repo, (2, "two"), "Change line 5", &[]);
   let pairing = pairing(&repo);
   assert_eq!(pairing.drops, [drop_of(&local[0], &upstream[1], LandedProof::Replayed)]);
-  assert_eq!((pairing.candidates.len(), pairing.with_fixups.len()), (0, 0), "{pairing:?}");
+  assert_eq!((pairing.candidates.len(), pairing.likely_landed().len()), (0, 0), "{pairing:?}");
 }
 
 /// The interdiff of a twin sums the local commit with its fixups: a line the fixup takes back cancels. What one side

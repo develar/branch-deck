@@ -30,11 +30,11 @@
 
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::autosquash_targets::target_of_each_fixup;
+use git_ops::autosquash_targets::{fixups_by_target, target_of_each_fixup};
 use git_ops::commit_utils::get_commits_info;
 use git_ops::landed_pairing::{
-  CommitKey, LandedCandidate, LandedPairing, LandedProof, LandedReads, PathLines, full_interdiffs, interdiffs, pair_by_patch_id, pair_twins, present_by_patch_id, read_local,
-  read_upstream,
+  CandidateBy, CommitKey, LandedCandidate, LandedPairing, LandedProof, LandedReads, PathLines, full_interdiffs, interdiffs, pair_by_patch_id, pair_twins, present_by_patch_id,
+  read_local, read_upstream,
 };
 use git_ops::lease_slot::{UnlandedCommit, commits_beyond_branch, commits_since, unlanded_commits};
 use git_ops::object_texts::read_texts;
@@ -416,12 +416,7 @@ fn folded_fixups(git_executor: &GitCommandExecutor, slot: &str, tip: &str, base:
 fn subject_twins(reads: &LandedReads, proofs: &Proofs<'_>) -> LandedPairing {
   let left: HashSet<&str> = proofs.left().into_iter().collect();
   let target_of = target_of_each_fixup(&reads.local);
-  let mut fixups: HashMap<&str, Vec<String>> = HashMap::new();
-  for commit in reads.local.iter().filter(|commit| left.contains(commit.id.as_str())) {
-    if let Some(target) = target_of.get(&commit.id) {
-      fixups.entry(target.as_str()).or_default().push(commit.id.clone());
-    }
-  }
+  let fixups = fixups_by_target(&reads.local, |commit| left.contains(commit));
   // newest first, as the upstream is read
   let mut by_subject: HashMap<(&str, &str), Vec<(&str, u32)>> = HashMap::new();
   for commit in &reads.upstream {
@@ -439,7 +434,8 @@ fn subject_twins(reads: &LandedReads, proofs: &Proofs<'_>) -> LandedPairing {
       pairing.candidates.push(LandedCandidate {
         commit: commit.id.clone(),
         upstream: (*upstream).to_string(),
-        fixups: fixups.get(commit.id.as_str()).cloned().unwrap_or_default(),
+        landed_with: fixups.get(commit.id.as_str()).cloned().unwrap_or_default(),
+        by: CandidateBy::Key,
       });
     }
   }

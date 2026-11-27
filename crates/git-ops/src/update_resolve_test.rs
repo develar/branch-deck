@@ -1,3 +1,4 @@
+use crate::landed_pairing::{CandidateBy, LandedCandidate};
 use crate::merge_tree_output::parse_merge_tree_output;
 use crate::revs::current_worktree;
 use crate::update_branch::{CheckPurpose, LandedLookup, UpstreamRef, apply_update, check_update};
@@ -201,7 +202,6 @@ fn session_state(repo: &TestRepo, head: &str) -> SessionState {
     started_head: head.to_string(),
     head: head.to_string(),
     local: Vec::new(),
-    likely_landed: Vec::new(),
     replayed: 0,
     tip: head.to_string(),
     round: 0,
@@ -523,6 +523,35 @@ fn a_state_of_another_version_is_refused_by_its_version_before_its_fields_are_re
   assert_eq!(read_session(git, path, "main").unwrap().unwrap().state().version, STATE_VERSION);
 }
 
+/// A session that a brd of state version 4 started reads on: its candidates name their fixups (`fixups`, now
+/// `landed_with`) and are candidates by identity, its `likely_landed` is left out, and the next state is of this version
+#[test]
+fn a_state_of_version_4_reads_its_fixups() {
+  let repo = TestRepo::new();
+  let head = repo.create_commit("one", "a.txt", "a\n");
+  let (git, path) = (repo.git_executor(), repo.path_str());
+  let mut state = serde_json::to_value(session_state(&repo, &head)).unwrap();
+  state["version"] = serde_json::json!(4);
+  state["likely_landed"] = serde_json::json!([head, "fixup"]);
+  state["landed_candidates"] = serde_json::json!([{ "commit": head, "upstream": "upstream", "fixups": ["fixup"] }]);
+  store_state_json(&repo, &state);
+  let session = read_session(git, path, "main").unwrap().unwrap();
+  let state = session.state();
+  assert_eq!(state.version, STATE_VERSION);
+  assert_eq!(
+    state.landed_candidates,
+    [LandedCandidate {
+      commit: head.clone(),
+      upstream: "upstream".to_string(),
+      landed_with: vec!["fixup".to_string()],
+      by: CandidateBy::Key,
+    }]
+  );
+  assert_eq!(state.candidate_of("fixup").map(|candidate| candidate.commit.as_str()), Some(head.as_str()));
+  let written = serde_json::to_value(state).unwrap();
+  assert_eq!((written.get("likely_landed"), written["landed_candidates"][0].get("fixups")), (None, None));
+}
+
 #[test]
 fn a_rename_rename_round_round_trips_in_the_state() {
   let repo = TestRepo::new();
@@ -557,7 +586,7 @@ fn a_rename_rename_round_round_trips_in_the_state() {
   });
   let encoded = serde_json::to_value(&state).unwrap();
   let decoded: SessionState = serde_json::from_value(encoded).unwrap();
-  assert_eq!(decoded.version, 4);
+  assert_eq!(decoded.version, STATE_VERSION);
   let file = &decoded.conflict.unwrap().files[0];
   assert_eq!((file.kind, file.path.as_str()), (ConflictKind::RenameRename, "onto.txt"));
   assert_eq!((file.renamed_from.as_deref(), file.commit_path.as_deref()), (Some("base.txt"), Some("commit.txt")));

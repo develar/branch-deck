@@ -63,6 +63,20 @@ pub fn target_of_each_fixup(commits: &[Commit]) -> HashMap<String, String> {
     .collect()
 }
 
+/// The fixups of each target among `local` (`target_of_each_fixup`), oldest first, of the fixups that `keep` takes
+#[must_use]
+pub fn fixups_by_target<'a>(local: &'a [Commit], keep: impl Fn(&str) -> bool) -> HashMap<&'a str, Vec<String>> {
+  let mut fixups: HashMap<&'a str, Vec<String>> = HashMap::new();
+  for (commit, resolution) in local.iter().zip(fixup_targets(local)) {
+    if let FixupTarget::Fixup(target) = resolution
+      && keep(&commit.id)
+    {
+      fixups.entry(local[target].id.as_str()).or_default().push(commit.id.clone());
+    }
+  }
+  fixups
+}
+
 /// The position of the target of the fixup at `index`, among the older commits
 fn find_target(commits: &[Commit], by_subject: &HashMap<&str, usize>, index: usize) -> Option<usize> {
   let fixup = autosquash_subject(&commits[index].subject)?;

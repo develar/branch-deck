@@ -44,10 +44,14 @@ pub const SESSION_REF_PREFIX: &str = "refs/branch-deck/resolve/";
 /// The audit record of a session: a note per resolved commit, written only by the finish
 pub const RESOLVE_NOTES_REF: &str = "refs/notes/branch-deck/resolve";
 const STATE_FILE: &str = "state.json";
-/// The version of `state.json`: 4 since a round can be a lost-bindings round (`ConflictKind::LostBinding`,
-/// `RoundConflict::lost_bindings`, `Resolution::fixup`). brd is one binary for every session of a machine, so a brd of
-/// another version refuses a session by this number
-const STATE_VERSION: u32 = 4;
+/// The version of `state.json`: 5 since a candidate names the commits it landed with (`LandedCandidate::landed_with`,
+/// once `fixups`) and what pairs it (`LandedCandidate::by`), and `likely_landed` is gone. brd is one binary for every
+/// session of a machine, so a brd of another version refuses a session by this number; this one reads a session of 4
+/// too (`READ_VERSIONS`), whose fields it knows
+const STATE_VERSION: u32 = 5;
+/// The versions of `state.json` this brd reads: 4 has `fixups` (an alias of `landed_with`) and `likely_landed`, which
+/// is ignored
+const READ_VERSIONS: [u32; 2] = [4, STATE_VERSION];
 /// The modes of a regular file: the only ones a round supports
 const FILE_MODES: [&str; 2] = ["100644", "100755"];
 /// The upstream commits listed per conflicting file
@@ -449,10 +453,8 @@ pub struct SessionState {
   pub head: String,
   /// The local commits to replay, oldest first
   pub local: Vec<String>,
-  /// Local commits the upstream likely has already (same author, author time and subject), with their fixups; no proof
-  /// left them out (`landed_pairing::LandedCandidate`)
-  pub likely_landed: Vec<String>,
-  /// The candidates of `likely_landed`, each with its upstream commit and its fixups: the round of one offers
+  /// The local commits the upstream likely has already, which no proof left out (`landed_pairing::LandedCandidate`),
+  /// each with its upstream commit and the commits it landed with: the round of each commit of its unit offers
   /// `--landed`. A session of an older brd has none
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub landed_candidates: Vec<LandedCandidate>,
@@ -889,10 +891,12 @@ pub fn read_session(git_executor: &GitCommandExecutor, repo_path: &str, worktree
   let commit = commit.id;
   // the version first: a state of another version may have fields or values this brd can't parse
   let version: StateVersion = serde_json::from_slice(&state.content).map_err(|e| anyhow!("Unreadable {STATE_FILE} of {session_ref}: {e}"))?;
-  if version.version != STATE_VERSION {
+  if !READ_VERSIONS.contains(&version.version) {
     bail!("{session_ref} has state version {}; this brd reads {STATE_VERSION}", version.version);
   }
-  let state: SessionState = serde_json::from_slice(&state.content).map_err(|e| anyhow!("Unreadable {STATE_FILE} of {session_ref}: {e}"))?;
+  let mut state: SessionState = serde_json::from_slice(&state.content).map_err(|e| anyhow!("Unreadable {STATE_FILE} of {session_ref}: {e}"))?;
+  // the next state commit writes this version
+  state.version = STATE_VERSION;
   let mut session = Session::new(session_ref, commit, state);
   session.head_seen = head_seen;
   Ok(Some(session))
@@ -1109,7 +1113,6 @@ pub fn prepare_session_start(
     started_head: checked.head.clone(),
     head: checked.head.clone(),
     local: replay.local.clone(),
-    likely_landed: replay.likely_landed().to_vec(),
     landed_candidates: replay.pairing.candidates.clone(),
     replayed: 0,
     tip: checked.upstream_head.clone(),

@@ -11,7 +11,7 @@ use crate::commit_utils::{blob_id, file_blob_id};
 use crate::commit_writer::{WrittenCommits, current_committer, write_notes_to_refs};
 use crate::crlf::conversions;
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock, IndexLocked};
-use crate::landed_pairing::{LandedCandidate, LandedDrop, LandedPairing, LandedReads, LandedScope, pair_before_replay, read_landed_with_paths, with_patch_identical};
+use crate::landed_pairing::{LandedCandidate, LandedDrop, LandedPairing, LandedReads, LandedScope, pair_after_conflict, pair_before_replay, read_landed_with_paths};
 use crate::lfs::WorktreeMove;
 use crate::merge_tree_output::parse_merge_tree_batch;
 use crate::paths::{COMMIT_FORMAT, ChangedPath, MAX_ATTRIBUTED_FILES, changed_paths, commits_touching, parse_commits};
@@ -175,11 +175,6 @@ impl ReplayPlan {
   /// The local commits left out: the upstream proves it has them
   pub fn left_out(&self) -> &[LandedDrop] {
     &self.pairing.drops
-  }
-
-  /// The local commits the upstream likely has, by identity alone, with their fixups: a resolve session marks them
-  pub fn likely_landed(&self) -> &[String] {
-    &self.pairing.with_fixups
   }
 }
 
@@ -790,20 +785,20 @@ fn replay_outcome(
         LandedLookup::Off => None,
       };
       // the local commits the upstream proves it has are never replayed onto it
-      let tried = twins.as_ref().map_or(0, |twins| twins.drops.len());
+      let tried = twins.as_ref().map_or(0, |twins| twins.pairing.drops.len());
       let first = match &twins {
-        Some(twins) if tried > 0 => replay_skipping(git_executor, repo_path, upstream_head, &revs, &twins.local, &drop_ids(&twins.drops), env)?,
+        Some(twins) if tried > 0 => replay_skipping(git_executor, repo_path, upstream_head, &revs, &twins.pairing.local, &drop_ids(&twins.pairing.drops), env)?,
         _ => replay_range_with_env(git_executor, repo_path, upstream_head, &revs, env)?,
       };
       if let Some(new_head) = first {
         if tried > 0 {
           info!(left_out = tried, "the update leaves out the local commits the upstream proves it has");
-          replay_plan = twins.map(ReplayPlan::of);
+          replay_plan = twins.map(|twins| ReplayPlan::of(twins.pairing));
         }
         new_head
       } else {
         let pairing = match (twins, &landed_reads) {
-          (Some(twins), Some(reads)) => with_patch_identical(git_executor, repo_path, landed_scope(plan), reads, twins)?,
+          (Some(twins), Some(reads)) => pair_after_conflict(git_executor, repo_path, landed_scope(plan), reads, twins)?,
           _ => unpaired(git_executor, repo_path, &revs)?,
         };
         let replay = ReplayPlan::of(pairing);
