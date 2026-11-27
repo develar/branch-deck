@@ -15,7 +15,7 @@ export function formatIde(ide: { product: string; build: string }): string {
 
 const REFUSALS: Record<string, string> = {
   DENIED: "The IDE denied Branch Deck, or nobody answered its question in time",
-  UNAVAILABLE: "The IDE cannot ask for consent now. Try again with the IDE window open",
+  UNAVAILABLE: "The IDE cannot ask for consent now, has no agent that can start, or did not open the tab in time. Try again with the IDE window open",
   BUSY: "The IDE answers another request now. Try again in a moment",
   RATE_LIMITED: "Branch Deck asked the IDE too often in the last minute. Try again later",
   UNAUTHORIZED: "The IDE does not let local apps in now. Update Air, or restart the IDE",
@@ -23,20 +23,15 @@ const REFUSALS: Record<string, string> = {
   BAD_REQUEST: "The IDE cannot read the request of Branch Deck",
   BAD_PARAMS: "The IDE cannot read the request of Branch Deck",
   NO_PROJECT: "No project open in the IDE holds the repository",
-  NO_DEFAULT: "The New Session button of the IDE has no default agent. Pick an agent there, then try again",
-  UNTRUSTED_PROJECT: "The IDE does not trust the project. Trust it in the IDE first",
-  TARGET_UNAVAILABLE: "The default agent is not available in the IDE now",
-  UNKNOWN_AGENT: "The IDE does not know the default agent now",
-  LAUNCH_FAILED: "The IDE cannot open the New Session tab",
 }
 
-/** A refusal of the IDE by its code; the message of the IDE only for `LAUNCH_FAILED` and an unknown code */
+/** A refusal of the IDE by its code; the message of the IDE only for an unknown code */
 export function formatRefusal(code: string, message: string | null): string {
   const words = REFUSALS[code]
-  if (words === undefined) {
-    return message === null ? `The IDE refused the request (${code})` : `The IDE refused the request (${code}): ${message}`
+  if (words !== undefined) {
+    return words
   }
-  return code === "LAUNCH_FAILED" && message !== null ? `${words}: ${message}` : words
+  return message === null ? `The IDE refused the request (${code})` : `The IDE refused the request (${code}): ${message}`
 }
 
 /** Opens the New Session tab with `prompt` in the IDE that has `project` open; the IDE may ask the user first */

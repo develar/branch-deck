@@ -1,25 +1,57 @@
-{"comment":"The local-app side of plugins/air/native/air-ide/protocol/corpus/local-ahp-apps.ndjson of the IDE: the lines that a local app sends (localConnect, local) and gets (toLocal), byte for byte as the corpus has them, in its order. A toLocal frame null is the close of the connection. ${any} matches any value, and the fake IDE sends 0 for it."}
+{"comment":"The local apps of the local AHP channel on a host with the root command x-air-ide/localAhpOpen. The test replaces ${scope} with a scope of its own, ${path} with the stable socket path of that scope, ${pid} with the pid of the test, and ${instances} with a directory of the test for the instance files. The steps localConnect, local and toLocal are those of local-ahp-channel.ndjson. A local app connects without access."}
+{"client":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"corpus","_meta":{"x-air-ide":{"version":"1.0.0"}}}}}
+{"host":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":0,"snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-ide":{"version":"1.0.0"}}}}}
+{"client":{"jsonrpc":"2.0","id":2,"method":"x-air-ide/localAhpOpen","params":{"channel":"ahp-root://","scope":"${scope}"}}}
+{"host":{"jsonrpc":"2.0","id":2,"result":{"channel":"x-air-ide:/localAhp/1","path":"${path}","snapshot":{"resource":"x-air-ide:/localAhp/1","state":{"path":"${path}","closed":false,"root":{"agents":[]}},"fromSeq":0}}}}
+{"host":{"jsonrpc":"2.0","method":"x-air-ide/log","params":{"channel":"x-air-ide:/localAhp/1","level":"info","category":"localAhp","message":"Local peer socket listening at ${path}","dropped":0}}}
+{"comment":"Before the holder gives the local apps, a client without access gets UNAUTHORIZED, and its stream ends."}
 {"localConnect":{"client":"a","request":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"branch-deck"}}}}
+{"host":{"jsonrpc":"2.0","method":"x-air-ide/log","params":{"channel":"x-air-ide:/localAhp/1","level":"info","category":"localAhp","message":"Refused a connection of the pid ${pid}: UNAUTHORIZED","dropped":0}}}
 {"toLocal":{"client":"a","frame":{"jsonrpc":"2.0","id":1,"error":{"code":-32009,"message":"The connection carries no credential that the IDE knows.","data":{"reason":"unauthorized","code":"UNAUTHORIZED","message":"The connection carries no credential that the IDE knows.","hint":"Run air-ide from a session that the IDE started, with its AIR_CLI_ACCESS.","details":{}}}}}}
 {"toLocal":{"client":"a","frame":null}}
+{"comment":"localAhpApps gives the instance file, the hosts and the last focus. It writes the instance file <directory>/<pid>.json, which names the socket, and answers its path."}
+{"client":{"jsonrpc":"2.0","id":3,"method":"x-air-ide/localAhpApps","params":{"channel":"x-air-ide:/localAhp/1","apps":{"instance":{"directory":"${instances}","product":"IU","build":"271.1"},"hosts":[{"projectDirectory":"/work/app","project":"project-a"}],"focusedAt":1795593688000}}}}
+{"host":{"jsonrpc":"2.0","id":3,"result":{"file":"${instances}/${pid}.json"}}}
+{"comment":"A client without access is now a local app. initialize lists its two methods: x-air-ij/hosts and x-air-ij/openDraft."}
 {"localConnect":{"client":"b","request":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"channel":"ahp-root://","protocolVersions":["1.0.0"],"clientId":"branch-deck"}}}}
-{"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":"${any}","snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-ij":{"methods":["x-air-ij/hosts","listSessions","createSession","x-air-ij/targets","x-air-ij/openDraft"]}}}}}}
+{"host":{"jsonrpc":"2.0","method":"x-air-ide/log","params":{"channel":"x-air-ide:/localAhp/1","level":"info","category":"localAhp","message":"The conn 1 of the pid ${pid} opened","dropped":0}}}
+{"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"1.0.0","serverSeq":"${any}","snapshots":[],"serverInfo":{"name":"air-ide"},"_meta":{"x-air-ij":{"methods":["x-air-ij/hosts","x-air-ij/openDraft"]}}}}}}
+{"comment":"A local app has no root subscription, so subscribe answers unknownMethod, and no question goes to the holder."}
 {"local":{"client":"b","frame":{"jsonrpc":"2.0","id":2,"method":"subscribe","params":{"channel":"ahp-root://"}}}}
-{"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","id":2,"result":{"snapshot":{"resource":"ahp-root://","state":{"agents":[]},"fromSeq":"${any}"}}}}}
+{"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"no request has the method subscribe","data":{"reason":"unknownMethod"}}}}}
+{"comment":"A change of the rows gives a local app no root notice: the next frame of the client is the answer of hosts."}
+{"client":{"jsonrpc":"2.0","id":4,"method":"x-air-ide/localAhpRows","params":{"channel":"x-air-ide:/localAhp/1","project":"project-a","rows":[{"summary":{"resource":"air-session:/s1","provider":"codex","title":"First","status":1,"createdAt":"2026-11-18T09:00:00.000Z","modifiedAt":"2026-11-18T10:00:00.000Z"}}]}}}
+{"host":{"jsonrpc":"2.0","id":4,"result":{"added":1,"changed":0,"removed":0}}}
+{"comment":"x-air-ij/hosts needs no consent. It answers the product, the build, the launch directories and the last focus of a window of the IDE."}
 {"local":{"client":"b","frame":{"jsonrpc":"2.0","id":3,"method":"x-air-ij/hosts","params":{"channel":"ahp-root://"}}}}
 {"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","id":3,"result":{"product":"IU","build":"271.1","hosts":[{"projectDirectory":"/work/app"}],"focusedAt":1795593688000}}}}
+{"host":{"jsonrpc":"2.0","method":"x-air-ide/log","params":{"channel":"x-air-ide:/localAhp/1","level":"info","category":"localAhp","message":"conn 1 pid ${pid} subject app: method x-air-ij/hosts result ok","dropped":0}}}
+{"comment":"A local app lists no session, so listSessions answers unknownMethod."}
 {"local":{"client":"b","frame":{"jsonrpc":"2.0","id":4,"method":"listSessions","params":{"channel":"ahp-root://"}}}}
-{"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","id":4,"result":{"items":[{"resource":"air-session:/s1","provider":"codex","title":"First","status":1,"createdAt":"2026-11-18T09:00:00.000Z","modifiedAt":"2026-11-18T10:00:00.000Z","project":"project-a"}]}}}}
-{"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","method":"root/sessionAdded","params":{"channel":"ahp-root://","summary":{"resource":"air-session:/s2","provider":"codex","title":"Second","status":1,"createdAt":"2026-11-18T09:00:00.000Z","modifiedAt":"2026-11-18T10:01:00.000Z","project":"project-a"}}}}}
-{"local":{"client":"b","frame":{"jsonrpc":"2.0","id":5,"method":"x-air-ij/targets","params":{"channel":"ahp-root://","projectDirectory":"/work/app/src"}}}}
-{"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","id":5,"result":{"targets":[{"launchTargetId":"codex","interactionSurfaceId":"native","agentId":"codex","name":"Codex","models":[{"id":"gpt-sol","name":"Sol","qualifier":null,"isDefault":true,"reasoningEfforts":["low","high"]},{"id":"gpt-astra","name":"Astra","qualifier":"1M","isDefault":false,"reasoningEfforts":["high","xhigh"]}],"modes":[{"id":"read-only","name":"Read Only","kind":"standard"},{"id":"plan","name":"Plan","kind":"plan"}],"plan":true,"listsLoading":false},{"launchTargetId":"terminal.claude","interactionSurfaceId":"terminal","agentId":"claude","name":"Claude","models":[],"modes":[],"plan":false,"listsLoading":true}]}}}}
-{"local":{"client":"b","frame":{"jsonrpc":"2.0","id":6,"method":"createSession","params":{"channel":"ahp-root://","projectDirectory":"/work/app","prompt":"Fix the build","title":"Build fix"}}}}
-{"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","id":6,"result":{"session":{"projectDirectory":"/work/app","localSessionId":"local-3"},"agentSessionId":"019a-agent-3"}}}}
-{"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","method":"root/sessionAdded","params":{"channel":"ahp-root://","summary":{"resource":"local-3","provider":"codex","title":"Build fix","status":1,"createdAt":"2026-11-18T09:00:00.000Z","modifiedAt":"2026-11-18T10:02:00.000Z","project":"project-a"}}}}}
-{"local":{"client":"b","frame":{"jsonrpc":"2.0","id":7,"method":"createSession","params":{"channel":"ahp-root://","projectDirectory":"/work/app","prompt":"Fix the build","interactionSurfaceId":"native"}}}}
-{"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","id":7,"error":{"code":-32602,"message":"interactionSurfaceId needs launchTargetId.","data":{"reason":"badParams","code":"BAD_PARAMS","message":"interactionSurfaceId needs launchTargetId.","hint":"Name both ids of one route of x-air-ij/targets, or neither for the default of the New Session button.","details":{}}}}}}
-{"local":{"client":"b","frame":{"jsonrpc":"2.0","id":8,"method":"x-air-ij/openDraft","params":{"channel":"ahp-root://","projectDirectory":"/work/app/src","prompt":"Review the change","launchTargetId":"codex","interactionSurfaceId":"native","model":"gpt-sol","effort":"high","plan":true,"planEffort":"low"}}}}
-{"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","id":8,"result":{}}}}
-{"local":{"client":"b","frame":{"jsonrpc":"2.0","id":9,"method":"createSession","params":{"channel":"ahp-root://","projectDirectory":"/elsewhere","prompt":"Fix the build"}}}}
-{"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","id":9,"error":{"code":-32008,"message":"No open project of the IDE holds the directory.","data":{"reason":"noProject","code":"NO_PROJECT","message":"No open project of the IDE holds the directory.","hint":"Open the project in the IDE, or ask another IDE: each instance file names the socket of one IDE.","details":{"projectDirectory":"/elsewhere","launchDirectories":["/work/app"]}}}}}}
+{"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","id":4,"error":{"code":-32601,"message":"no request has the method listSessions","data":{"reason":"unknownMethod"}}}}}
+{"comment":"x-air-ij/openDraft takes the string fields projectDirectory and prompt. The first draft reads the identity of the peer and asks the holder once with localAhpConsent. The grant answers {}, and the draft is one localAhpCall with the subject {kind: app}, the params {projectDirectory, prompt} and the host of projectDirectory: the deepest host that holds the directory. The holder opens a New Session tab with the prompt and the current choice of the picker, and answers {}. It sends nothing to the agent."}
+{"local":{"client":"b","frame":{"jsonrpc":"2.0","id":5,"method":"x-air-ij/openDraft","params":{"channel":"ahp-root://","projectDirectory":"/work/app/src","prompt":"Review the change"}}}}
+{"host":{"jsonrpc":"2.0","id":1,"method":"x-air-ide/localAhpConsent","params":{"channel":"x-air-ide:/localAhp/1","conn":1,"peer":"${any}"}}}
+{"client":{"jsonrpc":"2.0","id":1,"result":{}}}
+{"host":{"jsonrpc":"2.0","method":"x-air-ide/log","params":{"channel":"x-air-ide:/localAhp/1","level":"info","category":"localAhp","message":"The conn 1 of the pid ${pid} got the consent of the IDE","dropped":0}}}
+{"host":{"jsonrpc":"2.0","id":2,"method":"x-air-ide/localAhpCall","params":{"channel":"x-air-ide:/localAhp/1","conn":1,"call":1,"subject":{"kind":"app"},"method":"x-air-ij/openDraft","params":{"projectDirectory":"/work/app/src","prompt":"Review the change"},"host":{"projectDirectory":"/work/app","project":"project-a"}}}}
+{"client":{"jsonrpc":"2.0","id":2,"result":{}}}
+{"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","id":5,"result":{}}}}
+{"host":{"jsonrpc":"2.0","method":"x-air-ide/log","params":{"channel":"x-air-ide:/localAhp/1","level":"info","category":"localAhp","message":"conn 1 pid ${pid} subject app: method x-air-ij/openDraft result ok","dropped":0}}}
+{"comment":"The prompt of a draft loses its control characters in air-ide: ESC goes, and a carriage return before a line feed becomes one line feed. So the holder gets a clean prompt."}
+{"local":{"client":"b","frame":{"jsonrpc":"2.0","id":6,"method":"x-air-ij/openDraft","params":{"channel":"ahp-root://","projectDirectory":"/work/app","prompt":"Fix\u001b[201~ the\r\nbuild"}}}}
+{"host":{"jsonrpc":"2.0","id":3,"method":"x-air-ide/localAhpCall","params":{"channel":"x-air-ide:/localAhp/1","conn":1,"call":2,"subject":{"kind":"app"},"method":"x-air-ij/openDraft","params":{"projectDirectory":"/work/app","prompt":"Fix[201~ the\nbuild"},"host":{"projectDirectory":"/work/app","project":"project-a"}}}}
+{"client":{"jsonrpc":"2.0","id":3,"result":{}}}
+{"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","id":6,"result":{}}}}
+{"host":{"jsonrpc":"2.0","method":"x-air-ide/log","params":{"channel":"x-air-ide:/localAhp/1","level":"info","category":"localAhp","message":"conn 1 pid ${pid} subject app: method x-air-ij/openDraft result ok","dropped":0}}}
+{"comment":"A directory that no host holds gets NO_PROJECT with the launch directories, and the holder gets no call."}
+{"local":{"client":"b","frame":{"jsonrpc":"2.0","id":7,"method":"x-air-ij/openDraft","params":{"channel":"ahp-root://","projectDirectory":"/elsewhere","prompt":"Review the change"}}}}
+{"toLocal":{"client":"b","frame":{"jsonrpc":"2.0","id":7,"error":{"code":-32008,"message":"No open project of the IDE holds the directory.","data":{"reason":"noProject","code":"NO_PROJECT","message":"No open project of the IDE holds the directory.","hint":"Open the project in the IDE, or ask another IDE: each instance file names the socket of one IDE.","details":{"projectDirectory":"/elsewhere","launchDirectories":["/work/app"]}}}}}}
+{"host":{"jsonrpc":"2.0","method":"x-air-ide/log","params":{"channel":"x-air-ide:/localAhp/1","level":"info","category":"localAhp","message":"conn 1 pid ${pid} subject app: method x-air-ij/openDraft result NO_PROJECT","dropped":0}}}
+{"comment":"localAhpApps null deletes the instance file and ends each conn of a local app."}
+{"client":{"jsonrpc":"2.0","id":5,"method":"x-air-ide/localAhpApps","params":{"channel":"x-air-ide:/localAhp/1","apps":null}}}
+{"host":{"jsonrpc":"2.0","id":5,"result":{}}}
 {"toLocal":{"client":"b","frame":null}}
+{"host":{"jsonrpc":"2.0","method":"x-air-ide/log","params":{"channel":"x-air-ide:/localAhp/1","level":"info","category":"localAhp","message":"The conn 1 of the pid ${pid} ended","dropped":0}}}
+{"client":{"jsonrpc":"2.0","id":6,"method":"unsubscribe","params":{"channel":"x-air-ide:/localAhp/1"}}}
+{"host":{"jsonrpc":"2.0","id":6,"result":{}}}

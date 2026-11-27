@@ -147,10 +147,10 @@ later than the timeout of the answer), and writes the envelope `{"nonce":"<the e
   [@test] crates/air-launch/src/protocol_test.rs (`the_envelope_holds_the_echo_of_the_nonce_and_the_request_object_on_one_line`)
 
 #### Scenario: The local-app side of the corpus of the IDE
-- **WHEN** the client replays the frames of `initialize`, of the hosts and of a draft that a local app sends and gets in
-  the corpus of the IDE (`crates/air-launch/fixtures/local-ahp-apps.ndjson`), the draft with the project and the prompt
-  alone
-- **THEN** it reads each answer and the refusal `UNAUTHORIZED` of `initialize`
+- **WHEN** the client replays the frames of `initialize`, of the hosts and of the drafts that a local app sends and gets
+  in the corpus of the IDE (`crates/air-launch/fixtures/local-ahp-apps.ndjson`, a copy of the corpus of air-ide)
+- **THEN** it reads each answer: the refusal `UNAUTHORIZED` of `initialize`, the hosts, `{}` of a draft and `NO_PROJECT`
+  of a directory that no host holds
   [@test] crates/air-launch/src/client_test.rs (`the_local_app_side_of_the_corpus_of_the_ide_replays`)
 
 ### Requirement: The exchange: The answer of each request within 120 s
@@ -273,7 +273,7 @@ the agent.
 #### Scenario: The IDE opens the tab, or refuses it
 - **WHEN** the client opens a draft
 - **THEN** the request names the project and the prompt alone, and the answer `{}` is the open tab
-- **AND** a refusal (`DENIED`, `NO_DEFAULT`) is read with its code, message and hint
+- **AND** a refusal (`DENIED`, `UNAVAILABLE`) is read with its code, message and hint
   [@test] crates/air-launch/src/client_test.rs (`a_draft_names_only_the_project_and_the_prompt_and_reads_each_refusal`)
   [@test] crates/app-api/src/app/air_launch_test.rs (`the_ide_of_the_repository_opens_the_new_session_tab_with_the_project_and_the_prompt_alone`)
 
@@ -347,5 +347,5 @@ command MUST go through `notifyError`.
 #### Scenario: The words of every refusal code
 - **WHEN** the IDE refuses a draft
 - **THEN** the toast words every refusal code of a draft
-- **AND** it shows the message of the IDE only for `LAUNCH_FAILED` and an unknown code
-  [@test] src/lib/air-launch.test.ts (`words every refusal code of a draft, the message of a failed open, and an unknown code with its message`)
+- **AND** it shows the message of the IDE only for an unknown code
+  [@test] src/lib/air-launch.test.ts (`words every refusal code of a draft, and an unknown code with its message`)

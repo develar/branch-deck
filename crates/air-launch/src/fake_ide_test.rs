@@ -1,7 +1,8 @@
 //! The fake local AHP socket of an IDE for the tests of the client and of the discovery: it takes the connections one
 //! after another, runs the handshake, and plays the steps of each connection: a frame it reads and checks, a frame it
-//! writes, a pause, the close. `FakeIde::replay` plays a fixture of `fixtures/`, in the form of the corpus of the IDE
-//! (`localConnect`, `local`, `toLocal`), and `FakeIde::replay_only` the part of it that this client sends
+//! writes, the close. `FakeIde::replay` plays a fixture of `fixtures/`, in the form of the corpus of the IDE: the steps
+//! of a local app (`localConnect`, `local`, `toLocal`) beside those of the holder and of air-ide (`host`, `client`),
+//! which the fake skips. `FakeIde::replay_only` plays the part of it that this client sends
 
 use crate::client::Client;
 use pretty_assertions::assert_eq;
@@ -193,7 +194,8 @@ fn read_fixture(name: &str, sends: Option<&[(&str, &[&str])]>) -> Vec<Vec<Step>>
     let client = body["client"].as_str().map(str::to_owned);
     let index = |client: Option<String>| clients.iter().position(|it| Some(it) == client.as_ref()).unwrap();
     match kind.as_str() {
-      "comment" => {}
+      // the frames of the holder and of a client of air-ide, which no local app sees
+      "comment" | "host" | "client" => {}
       "localConnect" => {
         clients.push(client.unwrap());
         connections.push(vec![Step::Read(body["request"].clone())]);

@@ -5,29 +5,14 @@ const { airOpenDraft } = vi.hoisted(() => ({ airOpenDraft: vi.fn() }))
 vi.mock("@/lib/bindings", () => ({ commands: { airOpenDraft } }))
 
 describe("formatRefusal", () => {
-  it("words every refusal code of a draft, the message of a failed open, and an unknown code with its message", () => {
+  it("words every refusal code of a draft, and an unknown code with its message", () => {
     expect(formatRefusal("DENIED", "user said no")).toBe("The IDE denied Branch Deck, or nobody answered its question in time")
-    expect(formatRefusal("NO_DEFAULT", null)).toBe("The New Session button of the IDE has no default agent. Pick an agent there, then try again")
-    expect(formatRefusal("UNTRUSTED_PROJECT", null)).toBe("The IDE does not trust the project. Trust it in the IDE first")
-    expect(formatRefusal("LAUNCH_FAILED", "the agent is gone")).toBe("The IDE cannot open the New Session tab: the agent is gone")
+    expect(formatRefusal("UNAVAILABLE", "No agent of the IDE can start a session.")).toBe(
+      "The IDE cannot ask for consent now, has no agent that can start, or did not open the tab in time. Try again with the IDE window open",
+    )
     expect(formatRefusal("QUOTA", "later")).toBe("The IDE refused the request (QUOTA): later")
     expect(formatRefusal("QUOTA", null)).toBe("The IDE refused the request (QUOTA)")
-    const codes = [
-      "DENIED",
-      "UNAVAILABLE",
-      "BUSY",
-      "RATE_LIMITED",
-      "UNAUTHORIZED",
-      "UNKNOWN_METHOD",
-      "BAD_REQUEST",
-      "BAD_PARAMS",
-      "NO_PROJECT",
-      "NO_DEFAULT",
-      "UNTRUSTED_PROJECT",
-      "TARGET_UNAVAILABLE",
-      "UNKNOWN_AGENT",
-      "LAUNCH_FAILED",
-    ]
+    const codes = ["DENIED", "UNAVAILABLE", "BUSY", "RATE_LIMITED", "UNAUTHORIZED", "UNKNOWN_METHOD", "BAD_REQUEST", "BAD_PARAMS", "NO_PROJECT"]
     for (const code of codes) {
       expect(formatRefusal(code, null)).not.toContain(code)
     }

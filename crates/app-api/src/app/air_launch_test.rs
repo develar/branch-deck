@@ -121,14 +121,14 @@ fn no_directory_of_instance_files_and_no_ide_of_the_repository_are_no_ide() {
 
 #[test]
 fn a_refusal_of_the_ide_is_an_answer_and_a_close_without_an_answer_an_error() {
-  let fake = FakeIde::start(json!({"error": {"code": -32603, "message": "no default",
-    "data": {"reason": "missingValue", "code": "NO_DEFAULT", "message": "The New Session button of the project has no default agent now.", "details": {}}}}));
+  let fake = FakeIde::start(json!({"error": {"code": -32603, "message": "No agent of the IDE can start a session.",
+    "data": {"reason": "internal", "code": "UNAVAILABLE", "message": "No agent of the IDE can start a session.", "details": {}}}}));
   assert_eq!(
     open_draft(Some(fake.dir()), &params("/work/idea")).unwrap(),
     AirDraftAnswer::Refused {
       ide: ide(),
-      code: "NO_DEFAULT".to_owned(),
-      message: Some("The New Session button of the project has no default agent now.".to_owned()),
+      code: "UNAVAILABLE".to_owned(),
+      message: Some("No agent of the IDE can start a session.".to_owned()),
     }
   );
 

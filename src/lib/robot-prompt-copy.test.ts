@@ -87,10 +87,16 @@ describe("startRobotInAir", () => {
   })
 
   it("says a refusal of the IDE in its words, and an error of the command as an error", async () => {
-    airOpenDraft.mockResolvedValue({ status: "ok", data: { status: "refused", ide: IDE, code: "NO_DEFAULT", message: "no default agent" } })
+    airOpenDraft.mockResolvedValue({ status: "ok", data: { status: "refused", ide: IDE, code: "UNAVAILABLE", message: "No agent of the IDE can start a session." } })
     await startRobotInAir(ROBOT)
     expect(openToasts().map(it => [it.type, ...describeToast(it)])).toEqual([
-      ["error", "Cannot open the New Session for auth in Air", "The New Session button of the IDE has no default agent. Pick an agent there, then try again", undefined, undefined],
+      [
+        "error",
+        "Cannot open the New Session for auth in Air",
+        "The IDE cannot ask for consent now, has no agent that can start, or did not open the tab in time. Try again with the IDE window open",
+        undefined,
+        undefined,
+      ],
     ])
 
     resetToasts()

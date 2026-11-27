@@ -45,11 +45,19 @@ fn the_local_app_side_of_the_corpus_of_the_ide_replays() {
       focused_at: Some(1_795_593_688_000),
     }
   );
-  let draft = DraftParams {
-    project_directory: "/work/app/src",
-    prompt: "Review the change",
-  };
-  assert_eq!(connection.call::<Value>("x-air-ij/openDraft", &draft).unwrap(), json!({}));
+  let draft = |project_directory, prompt| DraftParams { project_directory, prompt };
+  assert_eq!(
+    connection.call::<Value>("x-air-ij/openDraft", &draft("/work/app/src", "Review the change")).unwrap(),
+    json!({})
+  );
+  // the client sends the prompt as it is: the IDE drops its control characters
+  assert_eq!(
+    connection.call::<Value>("x-air-ij/openDraft", &draft("/work/app", "Fix\u{1b}[201~ the\r\nbuild")).unwrap(),
+    json!({})
+  );
+  let no_project = refused(connection.call::<Value>("x-air-ij/openDraft", &draft("/elsewhere", "Review the change")).unwrap_err());
+  assert_eq!(no_project.code, "NO_PROJECT");
+  assert_eq!(no_project.message.as_deref(), Some("No open project of the IDE holds the directory."));
   drop(connection);
   ide.finish();
 }
@@ -67,7 +75,7 @@ fn a_draft_names_only_the_project_and_the_prompt_and_reads_each_refusal() {
       hint: Some("Allow Branch Deck in the IDE.".to_string()),
     }
   );
-  assert_eq!(refused(client.open_draft("/work/app", "Fix the build").unwrap_err()).code, "NO_DEFAULT");
+  assert_eq!(refused(client.open_draft("/work/app", "Fix the build").unwrap_err()).code, "UNAVAILABLE");
   ide.finish();
 }
 
