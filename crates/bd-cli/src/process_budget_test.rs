@@ -1769,14 +1769,14 @@ fn a_workspace() {
   let (_home, environment) = lease_environment(&repo);
   // bd's git, with the empty global config of the test
   let git = counted_git(&environment).unwrap();
-  let output = workspace_with(&git, &environment, None).unwrap();
+  let output = workspace_with(&git, &environment, None, &bd_core::bd_command::GlobalFlags::default()).unwrap();
   assert_eq!(output.next.len(), 1, "{output:?}");
   assert_git_processes(&git, &[("config", 2), ("rev-parse", 1), ("status", 1)]);
 
   let context = LeaseContext::resolve(&environment, None).unwrap();
   let got = lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
   let git = counted_git(&environment).unwrap();
-  let output = workspace_with(&git, &environment, Some(std::path::Path::new(&got.path))).unwrap();
+  let output = workspace_with(&git, &environment, Some(std::path::Path::new(&got.path)), &bd_core::bd_command::GlobalFlags::default()).unwrap();
   assert_eq!(output.lease_id.as_deref(), Some(got.lease_id.as_str()));
   assert_git_processes(&git, &[("config", 1), ("diff-tree", 1), ("rev-parse", 2), ("status", 1)]);
 
@@ -1785,7 +1785,7 @@ fn a_workspace() {
     &[(".cargo/config.toml", "[build]\njobs = 1\n"), ("Cargo.toml", "[profile.dev]\ndebug = 0\n")],
   );
   let git = counted_git(&environment).unwrap();
-  let output = workspace_with(&git, &environment, Some(std::path::Path::new(&got.path))).unwrap();
+  let output = workspace_with(&git, &environment, Some(std::path::Path::new(&got.path)), &bd_core::bd_command::GlobalFlags::default()).unwrap();
   assert_eq!(output.home.unwrap().build_config_changed, [".cargo/config.toml", "Cargo.toml"]);
   assert_git_processes(&git, &[("cat-file", 1), ("config", 1), ("diff-tree", 1), ("rev-parse", 2), ("status", 1)]);
 }

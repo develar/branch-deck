@@ -786,10 +786,11 @@ fn commit_at(repo: &TestRepo, subject: &str, files: &[(&str, &str)]) {
 /// Runs the `next` of `output` with `extra`, with full ids
 fn run_next(clone: &TestRepo, output: &Value, extra: &[&str]) -> (i32, Value) {
   let next = output["session"]["next"].as_str().unwrap_or_else(|| panic!("{output}"));
+  // as printed, its `--prefix` too
   let mut args = vec!["--full-ids"];
   args.extend(next.split(' ').skip(1));
   args.extend_from_slice(extra);
-  run_in(clone, &args)
+  bd_cli::fixture_test::run_json(&bd_cli::fixture_test::environment(clone.path()), &args)
 }
 
 /// The robot landed the commit with a fixup folded in: its twin lacks the line of the commit, so a drop loses it. The

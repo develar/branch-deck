@@ -1072,7 +1072,9 @@ fn a_pick_refuses_a_message_that_the_commit_rules_reject() {
   );
   let message = error["message"].as_str().unwrap();
   assert!(
-    message.contains(&format!("-C {} reword {bad} --subject '<subject>'", lane.path)) && message.contains("pick --from") && message.contains("--allow-message-format '<reason>'"),
+    message.contains(&format!("-C {} --prefix {PREFIX} reword {bad} --subject '<subject>'", lane.path))
+      && message.contains("pick --from")
+      && message.contains("--allow-message-format '<reason>'"),
     "{message}"
   );
   assert_eq!(repo.head(), home, "nothing landed");

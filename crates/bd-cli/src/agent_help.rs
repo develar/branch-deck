@@ -635,7 +635,8 @@ nothing of it landed, its `pull_request` draft opens a new one into the baseline
   nothing of them is left to push until they are archived. With others to push, `brd push` only leaves a landed
   one out (with `--with-children` its children too), named in `skipped` with who landed it; tell the user. A
   branch it is built on that landed is not pushed along.
-`brd sync` prints the push each branch needs as `push`, ready to run once approved. `stacks` in `brd sync` and
+`brd sync` prints the push each branch needs as `push`, ready to run once approved (with the --prefix
+it was given, as every command brd prints). `stacks` in `brd sync` and
 `brd status` is the stack branch of each stack that forks, `{prefix}/stack/<root>`: all its commits
 in one branch, for a Safe Push of the whole stack (`state`: `built`, `blocked` by `member`, `conflict`, `stale`);
 push none that isn't `built`. `brd push <root> --with-children` pushes it in the same atomic push once it is on the

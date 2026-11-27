@@ -46,17 +46,50 @@ impl BdCommand {
     }
   }
 
-  /// `for_shell` with `-C <repository>`, the repository quoted the same way (`in_worktree`)
-  pub fn for_shell_in(&self, repository: &str) -> String {
-    in_worktree(&self.for_shell(), repository)
+  /// `for_shell` with `-C <repository>` and `flags`, the repository quoted the same way (`in_worktree`)
+  pub fn for_shell_in(&self, repository: &str, flags: &GlobalFlags) -> String {
+    in_worktree(&self.for_shell(), repository, flags)
   }
 }
 
-/// `<program> -C <dir>`, the dir quoted for the shell: the one place a command that brd names for a worktree gets its
-/// `-C`. `RepoContext::bd` is this for the context's repository, so a command there is `context.bd` and its arguments,
-/// never a second `-C`; a command of another worktree (a lease, the home checkout) is `in_worktree(CLI_NAME, dir)`
-pub fn in_worktree(program: &str, dir: &str) -> String {
-  format!("{program} -C {}", shell_word(dir))
+/// The global options of the command line that change what a command acts on, which every command brd names for a
+/// worktree carries (`in_worktree`), so that the command, run as written, acts on what the one that named it did:
+/// `--prefix`, the branches it acts on. The others do not: `-C` is the worktree each command names itself, `--full-ids`
+/// and `--no-cache` change only how it prints and reads, `-v` its log. A command of the lease pool that acts on no branch
+/// (`lease get`, `return`, `notes`) takes none
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GlobalFlags {
+  /// `--prefix` as the command line gave it
+  pub prefix: Option<String>,
+}
+
+impl GlobalFlags {
+  /// The flags of a command line whose `--prefix` is `prefix`
+  #[must_use]
+  pub fn of(prefix: Option<&str>) -> Self {
+    Self {
+      prefix: prefix.map(str::to_owned),
+    }
+  }
+}
+
+/// The flags as the command line takes them, each word quoted for the shell and after a space; nothing without one
+impl std::fmt::Display for GlobalFlags {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match &self.prefix {
+      Some(prefix) => write!(f, " --prefix {}", shell_word(prefix)),
+      None => Ok(()),
+    }
+  }
+}
+
+/// `<program> -C <dir>` and `flags`, the dir quoted for the shell: the one place a command that brd names for a worktree
+/// gets its `-C` and the global options of the command line that named it (`GlobalFlags`). `RepoContext::bd` is this for
+/// the context's repository, so a command there is `context.bd` and its arguments, never a second `-C`; a command of
+/// another worktree (a lease, the home checkout) is `RepoContext::bd_in`, or `in_worktree(CLI_NAME, dir, flags)` where
+/// no context is
+pub fn in_worktree(program: &str, dir: &str, flags: &GlobalFlags) -> String {
+  format!("{program} -C {}{flags}", shell_word(dir))
 }
 
 /// A word for the user's shell: as it is when plain, else single-quoted, where nothing expands: for a POSIX shell a

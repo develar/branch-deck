@@ -17,7 +17,7 @@ use crate::install::{InstallArgs, install};
 use crate::lease_pick::{LeasePickOutput, returned_after};
 use crate::schema::{SchemaArgs, schema};
 use crate::unattended::{HookArgs, HookCommand, UnattendedArgs, run_permission_request, unattended};
-use bd_core::bd_command::skill_command;
+use bd_core::bd_command::{GlobalFlags, skill_command};
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::{CONFLICT_EXIT, CliError};
 use bd_core::output::{WithOperation, write_json};
@@ -498,7 +498,7 @@ fn lease_pick_reporting(
   if !update.resolved.is_empty() {
     let mut pick = pick;
     if let Some(conflict) = pick.conflict.as_mut() {
-      conflict.next = words_next(&update, &branch, &lease.dirs.top_level);
+      conflict.next = words_next(&update, &branch, &home.bd_in(&lease.dirs.top_level));
     }
     return Ok(LeasePickOutput::of(pick, Some(update)));
   }
@@ -515,7 +515,7 @@ fn lease_pick_reporting(
       conflict.next = format!(
         "Nothing landed. The update moved the lease onto the tip of {branch} (`update`), a tree that no build or test ran on: run the build and the \
          tests in the lease, then `{lease} lease pick` again",
-        lease = bd_core::bd_command::in_worktree(bd_core::bd_command::CLI_NAME, &lease.dirs.top_level),
+        lease = home.bd_in(&lease.dirs.top_level),
       );
     }
     pick.check = Some(tree_check_output(check));
@@ -529,8 +529,8 @@ fn lease_pick_reporting(
 const WORDS_NEXT_FILES: usize = 5;
 
 /// `conflict.next` of a lease pick whose update applied after its words resolved a conflict of git (`update.resolved`):
-/// nothing landed, the files the words merged go to a build and the tests first
-fn words_next(update: &UpdateOutput, branch: &str, lease_dir: &str) -> String {
+/// nothing landed, the files the words merged go to a build and the tests first; `lease` is brd in the lease
+fn words_next(update: &UpdateOutput, branch: &str, lease: &str) -> String {
   let paths = update.verify.as_ref().map_or(&[][..], |verify| verify.paths.as_slice());
   let more = paths.len().saturating_sub(WORDS_NEXT_FILES) + update.verify.as_ref().map_or(0, |verify| verify.paths_omitted as usize);
   let named = paths.iter().take(WORDS_NEXT_FILES).map(String::as_str).collect::<Vec<_>>().join(", ");
@@ -543,7 +543,6 @@ fn words_next(update: &UpdateOutput, branch: &str, lease_dir: &str) -> String {
     "Nothing landed. The update moved the lease onto the tip of {branch} (`update`) and resolved the conflict by words in {files} \
      (`update.verify.paths`): a merge that no build or test saw. Read the resolved hunks, build and run the tests in the lease, then \
      `{lease} lease pick` again",
-    lease = bd_core::bd_command::in_worktree(bd_core::bd_command::CLI_NAME, lease_dir),
   )
 }
 
@@ -570,7 +569,7 @@ fn lease_pick_in(
   };
   let home = HomePick {
     branch,
-    lease_bd: bd_core::bd_command::in_worktree(bd_core::bd_command::CLI_NAME, lease_dir),
+    lease_bd: context.bd_in(lease_dir),
     check,
     dirs: Some(lease_dirs.clone()),
   };
@@ -646,6 +645,7 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
   // a lease needs no branch prefix: git and the worktree of `directory`, else of -C, else of the current directory
   let lease_context = |directory: Option<&std::path::Path>| {
     LeaseContext::resolve(environment, directory.or(options.repo))
+      .map(|context| context.with_flags(GlobalFlags::of(options.prefix)))
       .inspect(|context| *common_dir.borrow_mut() = Some(PathBuf::from(&context.dirs.git_common_dir)))
       .and_then(|context| check_reclaimed(std::path::Path::new(&context.dirs.git_common_dir), &context.dirs.top_level).map(|()| context))
   };
@@ -677,7 +677,7 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
       let run = |context: RepoContext| {
         // the steps of a resolve session and a dry run go on in a lease; an update onto the baseline does not
         if !(args.status || args.abort || args.resume || args.dry_run) {
-          refuse_update_in_lease(&context.git_common_dir, &context.repository)?;
+          refuse_update_in_lease(&context)?;
         }
         update(&context, args)
       };
@@ -773,12 +773,12 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
     Command::Reapply(args) => context().and_then(|context| reapply(&context, args)).and_then(|output| printed(out, &output)),
     Command::Drop(args) => {
       let run = |context: RepoContext| {
-        refuse_drop_of_home_commits(&context.git, &context.git_common_dir, &context.repository, &args.commits)?;
+        refuse_drop_of_home_commits(&context, &args.commits)?;
         drop_commits(&context, args)
       };
       context().and_then(run).and_then(|output| printed(out, &output))
     }
-    Command::Workspace => workspace(environment, options.repo).and_then(|output| printed(out, &output)),
+    Command::Workspace => workspace(environment, options.repo, &GlobalFlags::of(options.prefix)).and_then(|output| printed(out, &output)),
     Command::Schema(args) => schema(args).and_then(|output| printed(out, &output)),
     Command::Version => printed(out, &version(environment)),
     Command::Install(args) => install(environment, args).and_then(|output| printed(out, &output)),

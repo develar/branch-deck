@@ -391,8 +391,9 @@ fn a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names() {
 
 /// Runs `command`, a `brd` command as `brd check` prints it, then `brd check`, which every branch passes
 fn run_as_printed_and_check(repo: &TestRepo, command: &str) {
+  // as printed: its `--prefix` too
   let args: Vec<&str> = command.strip_prefix("brd ").unwrap().split(' ').collect();
-  let (exit_code, moved) = run_in(repo, &args);
+  let (exit_code, moved) = run_json(&environment(repo.path()), &args);
   assert_eq!(exit_code, 0, "{moved}");
   let (exit_code, output) = run_in(repo, &["check"]);
   assert_eq!((exit_code, &output["ok"]), (0, &json!(true)), "{output}");

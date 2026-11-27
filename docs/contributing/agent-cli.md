@@ -183,6 +183,12 @@ A refusal that a command acts on has `next_steps`, the commands ready to run in 
  "next_steps":[{"command":"brd push auth --force --expect-remote 1a2b3c4d","needs_approval":true}],"retryable":false}}
 ```
 
+Every command brd prints for a worktree (a step, `next`, the `push` of `brd sync`, a command a message names) names it
+with one `-C` and carries the global options of the command line that change what it acts on, `--prefix`
+(`bd_core::bd_command::GlobalFlags`, which `in_worktree` takes, so no builder leaves it out): run as printed, it acts on
+the branches the command that printed it did. `--full-ids`, `--no-cache` and `-v` change only how a command reads and
+prints, and a command of the lease pool that acts on no branch (`lease get`, `return`, `notes`) takes none.
+
 A step with `needs_approval` pushes, rewrites, updates or cancels or restarts a robot: run it only once the user
 approved it. One without it only reads (`brd robot`, `brd sync`, `brd safe-push <branch> --dry-run`). The field is
 `next_steps`, not `next`: the `next` of `brd workspace`, `brd update` and `brd pick` runs at once, a step of an error

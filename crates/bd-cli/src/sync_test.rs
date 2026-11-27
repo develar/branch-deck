@@ -1,8 +1,9 @@
 #[cfg(unix)]
 use crate::fixture_test::{PREFIX, beside_a_held_sync};
-use crate::fixture_test::{bd_in, commit_all, git, hold_the_lock, repo_on_baseline, repo_with_commits, repo_with_login, run_in, write};
+use crate::fixture_test::{bd_in, commit_all, environment, git, hold_the_lock, repo_on_baseline, repo_with_commits, repo_with_login, repository, run_in, run_json, write};
 #[cfg(unix)]
 use crate::remote_fixture_test::{remote_tip, repo_with_remote};
+use bd_core::bd_command::shell_word;
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -43,6 +44,31 @@ fn syncs_and_reports_each_branch() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["branches"][0]["state"], json!("unchanged"));
   assert_eq!(output["branches"][0]["tip"], json!(short_id(&tip)));
+}
+
+/// `--prefix` over the prefix of the config: the command a sync names carries it, so run as written it acts on the
+/// branch of that prefix, not on the one of the config
+#[test_log::test]
+fn the_push_a_sync_names_carries_the_prefix_of_its_command_line() {
+  let (repo, _) = repo_with_commits(
+    &[("README.md", "readme\n")],
+    &[HistoryCommit::new("(auth) Add login", &[("auth.rs", "auth\n")]).at(1_700_000_100)],
+  );
+  repo.set_config("branchdeck.branchPrefix", "develar").unwrap();
+
+  let (exit_code, output) = run_json(&environment(repo.path()), &["--prefix", "slc", "sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (output["branches"][0]["ref"].clone(), output["branches"][0]["push"].clone()),
+    (
+      json!("refs/heads/slc/virtual/auth"),
+      json!(format!("brd -C {} --prefix slc push auth", shell_word(&repository(&repo))))
+    )
+  );
+  // the prefix of the config is not named
+  let (exit_code, output) = run_json(&environment(repo.path()), &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["branches"][0]["push"], json!(format!("brd -C {} push auth", shell_word(&repository(&repo)))));
 }
 
 #[test_log::test]

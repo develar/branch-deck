@@ -2,8 +2,8 @@
 //! (openspec/specs/cli/lease/spec.md). The core (`lease_pool::lease`) keeps the state in `$GIT_COMMON_DIR/branch-deck/leases.json`
 //! under a pool lock of its own; a lease needs no branch prefix, so these commands resolve only git and the repository
 
-use bd_core::bd_command::{CLI_NAME, in_worktree, shell_word};
-use bd_core::context::{Environment, counted_git};
+use bd_core::bd_command::{CLI_NAME, GlobalFlags, in_worktree, shell_word};
+use bd_core::context::{Environment, RepoContext, counted_git};
 use bd_core::error::{CliError, ErrorExtra, NextStep, ProcessKind, ProcessOutput};
 use bd_core::output::SchemaVersion;
 use bd_core::text_input::{message_reason_text, reason_text};
@@ -241,6 +241,9 @@ pub struct LeaseContext {
   /// The `brd-host` beside the running binary, which an end of a lease runs for the runs of brd-host that the lease
   /// leaves (`lease_pool::host_cancel`)
   pub host_cancel: HostCancel,
+  /// The global options of the command line that the commands it names carry (`bd_core::bd_command::GlobalFlags`);
+  /// none until `with_flags`
+  pub flags: GlobalFlags,
 }
 
 impl LeaseContext {
@@ -261,7 +264,15 @@ impl LeaseContext {
       server_stop_timeout: environment.server_stop_timeout,
       queue: QueueTiming::default(),
       host_cancel: HostCancel::of_binary(environment.executable.as_deref()),
+      flags: GlobalFlags::default(),
     })
+  }
+
+  /// The context whose named commands carry `flags`, the global options of the command line
+  #[must_use]
+  pub fn with_flags(mut self, flags: GlobalFlags) -> Self {
+    self.flags = flags;
+    self
   }
 }
 
@@ -416,14 +427,15 @@ impl LeaseHomeOutput {
 /// home has no branch to land on), with `pull_request` (`branchdeck.agentPullRequest`) the push of its branch from the
 /// home, whose `gh pr create` opens the pull request, the end of the session once the task is done (the pick of what is
 /// left with the return of the lease, `lease pick --return`; the return alone without a branch to land on), and for a
-/// lease with `notes` the command that finds them after it
-pub fn lease_next(path: &str, home: &LeaseHome, lease_id: &str, pull_request: bool, notes: bool) -> Vec<String> {
+/// lease with `notes` the command that finds them after it; those of a worktree carry `flags`, the global options of the
+/// command line
+pub fn lease_next(path: &str, home: &LeaseHome, lease_id: &str, pull_request: bool, notes: bool, flags: &GlobalFlags) -> Vec<String> {
   let mut next = Vec::new();
   if home.branch.is_some() && !home.checkout.is_empty() {
-    let lease = in_worktree(CLI_NAME, path);
+    let lease = in_worktree(CLI_NAME, path, flags);
     next.push(format!("{lease} lease pick"));
     if pull_request {
-      next.push(format!("{} push <branch>", in_worktree(CLI_NAME, &home.checkout)));
+      next.push(format!("{} push <branch>", in_worktree(CLI_NAME, &home.checkout, flags)));
     }
     next.push(format!("{lease} lease pick --return"));
   } else {
@@ -447,7 +459,7 @@ pub fn lease_home(context: &LeaseContext) -> Result<(String, String), CliError> 
     )
   })?;
   if ref_exists(&context.git, top_level, &session_ref(&slot.name)) {
-    let lease = in_worktree(CLI_NAME, top_level);
+    let lease = in_worktree(CLI_NAME, top_level, &context.flags);
     return Err(CliError::new(
       ErrorCode::ResolveInProgress,
       format!("A resolve session is open in {top_level}: finish it with `{lease} update --continue` and then `{lease} lease pick`, or close it with `{lease} update --abort`"),
@@ -465,9 +477,9 @@ pub fn lease_home(context: &LeaseContext) -> Result<(String, String), CliError> 
     _ => {
       // the pick runs in the source, which the lease may not know
       let (source, bd) = if home.checkout.is_empty() {
-        ("its source", CLI_NAME.to_string())
+        ("its source", format!("{CLI_NAME}{}", context.flags))
       } else {
-        (home.checkout.as_str(), in_worktree(CLI_NAME, &home.checkout))
+        (home.checkout.as_str(), in_worktree(CLI_NAME, &home.checkout, &context.flags))
       };
       Err(CliError::new(
         ErrorCode::NoHomeBranch,
@@ -509,9 +521,11 @@ fn session_lease_at(git_common_dir: &Path, top_level: &str) -> Result<Option<Lea
 
 /// `brd update` in the worktree at `top_level`: refused in a lease of the pool (`lease_follows_home`), which follows the
 /// branch it was cut from, not the baseline: an update onto the baseline would move it past that branch, and its pick
-/// would refuse it (`source_on_newer_baseline`). A host slot of `bd-host` is no session's lease
-pub fn refuse_update_in_lease(git_common_dir: &Path, top_level: &str) -> Result<(), CliError> {
-  let Some(lease) = session_lease_at(git_common_dir, top_level)? else {
+/// would refuse it (`source_on_newer_baseline`). A host slot of `bd-host` is no session's lease; the command it names
+/// carries the global options of the command line (`RepoContext::bd`)
+pub fn refuse_update_in_lease(context: &RepoContext) -> Result<(), CliError> {
+  let top_level = context.repository.as_str();
+  let Some(lease) = session_lease_at(&context.git_common_dir, top_level)? else {
     return Ok(());
   };
   let home = lease.home();
@@ -522,7 +536,7 @@ pub fn refuse_update_in_lease(git_common_dir: &Path, top_level: &str) -> Result<
       "{top_level} is a lease: it follows {branch} of {checkout}, not the baseline. `{lease} lease pick` lands its commits on {branch} and moves \
        it onto the tip; {branch} itself is updated in {checkout} by its owner: ask the user",
       checkout = home.checkout,
-      lease = in_worktree(CLI_NAME, top_level),
+      lease = context.bd,
     ),
   ))
 }
@@ -540,9 +554,11 @@ pub fn reword_home_ref(git_common_dir: &Path, top_level: &str) -> Result<Option<
 /// landed it) is refused as `drop_in_home`: a drop in the lease would come back with the next pick, which moves the lease
 /// onto the tip of that branch. The drop runs in the shared checkout, then `brd lease pick` moves the lease past it
 /// (`next_steps`). Commits only the lease has drop there as anywhere. One `rev-parse` and one `merge-base --is-ancestor`
-/// per named commit, only in a lease; a host slot of `bd-host` is no session's lease
-pub fn refuse_drop_of_home_commits(git: &GitCommandExecutor, git_common_dir: &Path, top_level: &str, commits: &[String]) -> Result<(), CliError> {
-  let Some(lease) = session_lease_at(git_common_dir, top_level)? else {
+/// per named commit, only in a lease; a host slot of `bd-host` is no session's lease. Its next steps carry the global
+/// options of the command line (`RepoContext::bd_in`)
+pub fn refuse_drop_of_home_commits(context: &RepoContext, commits: &[String]) -> Result<(), CliError> {
+  let (git, top_level) = (&context.git, context.repository.as_str());
+  let Some(lease) = session_lease_at(&context.git_common_dir, top_level)? else {
     return Ok(());
   };
   let home = lease.home();
@@ -564,7 +580,7 @@ pub fn refuse_drop_of_home_commits(git: &GitCommandExecutor, git_common_dir: &Pa
     return Ok(());
   }
   let named = landed.iter().map(|commit| shell_word(commit)).collect::<Vec<_>>().join(" ");
-  let checkout = in_worktree(CLI_NAME, &home.checkout);
+  let checkout = context.bd_in(&home.checkout);
   Err(CliError {
     commits: landed.clone(),
     ..CliError::new(
@@ -577,7 +593,7 @@ pub fn refuse_drop_of_home_commits(git: &GitCommandExecutor, git_common_dir: &Pa
     )
   }
   .with_next_step(format!("{checkout} drop {named}"), false)
-  .with_next_step(format!("{} lease pick", in_worktree(CLI_NAME, top_level)), false))
+  .with_next_step(format!("{} lease pick", context.bd), false))
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -994,6 +1010,7 @@ pub(crate) fn lease_get_output(context: &LeaseContext, got: &LeaseGot) -> Result
       &lease.id,
       got.agent_landing == AgentLanding::PullRequest,
       got.notes.is_some(),
+      &context.flags,
     ),
     notes: got.notes.as_ref().map(|notes| notes.dir.to_string_lossy().into_owned()),
     leased_at: lease.leased_at,

@@ -1,5 +1,5 @@
 use bd_cli::fixture_test::assert_covered;
-use bd_cli::fixture_test::{PREFIX, assert_error, bd_in, branch, commit_all, git, next_steps, run_in, run_json, write};
+use bd_cli::fixture_test::{PREFIX, assert_error, bd_in, branch, commit_all, environment, git, next_steps, run_in, run_json, write};
 use bd_cli::remote_fixture_test::{
   LANDED_SUBJECTS, Space, auth_remote_moved_back, land_auth_by_content, push_from_elsewhere_to, rebuild_on_a_newer_baseline, remote_tip, repo_with_remote, their_change,
 };
@@ -851,8 +851,9 @@ fn a_child_rebuilt_on_the_baseline_after_its_parent_landed_is_pushed() {
 
 /// `brd push` with the arguments of a `push` line of the sync output
 fn run_push_line(repo: &TestRepo, line: &str) -> (i32, Value) {
+  // as printed: its `--prefix` too
   let args: Vec<&str> = line.strip_prefix("brd ").unwrap_or_else(|| panic!("{line}")).split(' ').collect();
-  run_in(repo, &args)
+  run_json(&environment(repo.path()), &args)
 }
 
 /// The sync names the push each branch needs: `--force --expect-remote` for a branch whose push drops a commit someone

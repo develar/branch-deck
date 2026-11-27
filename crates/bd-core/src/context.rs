@@ -1,4 +1,4 @@
-use crate::bd_command::{CLI_NAME, bd_command, in_worktree};
+use crate::bd_command::{CLI_NAME, GlobalFlags, bd_command, in_worktree};
 use crate::error::CliError;
 use crate::output::ShortIds;
 use app_settings::file::{SETTINGS_FILE_NAME, SettingsFile};
@@ -177,8 +177,11 @@ pub struct RepoContext {
   pub git_common_dir: PathBuf,
   pub use_cache: bool,
   pub lock_timeout: Duration,
-  /// This brd in this repository, quoted for the shell (`brd -C <repository>`), for the next commands an output names
+  /// This brd in this repository, quoted for the shell (`brd -C <repository>`) with the global options of the command
+  /// line that change what a command acts on (`GlobalFlags`: `--prefix`), for the next commands an output names
   pub bd: String,
+  /// The global options of the command line that every command it names carries (`bd`, `bd_in`)
+  pub flags: GlobalFlags,
   /// Settings → Landing of the app (`patronusNewApi`): the progress of a running robot in one request and the merge
   /// profile from the list, as the app reads them; off without the setting
   pub patronus_new_api: bool,
@@ -258,6 +261,7 @@ impl RepoContext {
     cache_config.sync_commits = environment.flush_to_drive;
     // the lease the slot holds as the command starts
     let lease = lease_guard(Path::new(&repository));
+    let flags = GlobalFlags::of(options.prefix);
     Ok(Self {
       git,
       prefix: prefix.prefix,
@@ -269,7 +273,8 @@ impl RepoContext {
       lock_timeout: environment.lock_timeout,
       patronus_new_api: environment.settings.patronus_new_api,
       operation_id: OperationId::new(),
-      bd: bd_command(environment).map_or_else(|_| in_worktree(CLI_NAME, &repository), |command| command.for_shell_in(&repository)),
+      bd: bd_command(environment).map_or_else(|_| in_worktree(CLI_NAME, &repository, &flags), |command| command.for_shell_in(&repository, &flags)),
+      flags,
       repository,
       cache: OnceLock::new(),
       file_diffs: OnceLock::new(),
@@ -279,6 +284,13 @@ impl RepoContext {
       runtime: OnceLock::new(),
       lease,
     })
+  }
+
+  /// `brd -C <dir>` of another worktree (a lease, the home checkout) with the global options of the command line
+  /// (`GlobalFlags`), for the next commands an output names there
+  #[must_use]
+  pub fn bd_in(&self, dir: &str) -> String {
+    in_worktree(CLI_NAME, dir, &self.flags)
   }
 
   /// The context of the command whose operation is `operation_id` (`bd-cli::execute_operation`)

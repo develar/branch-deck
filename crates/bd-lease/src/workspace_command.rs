@@ -3,7 +3,7 @@
 //! next commands of the agent
 
 use crate::lease_command::{IdleOutput, LeaseHomeOutput, lease_next, refusal_error};
-use bd_core::bd_command::shell_word;
+use bd_core::bd_command::{GlobalFlags, shell_word};
 use bd_core::context::Environment;
 use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
@@ -115,13 +115,14 @@ pub struct ActiveLeaseOutput {
   pub idle: Option<IdleOutput>,
 }
 
-/// `brd workspace` in `directory`, else in the current directory: no working tree is an answer, not an error
-pub fn workspace(environment: &Environment, directory: Option<&Path>) -> Result<WorkspaceOutput, CliError> {
-  workspace_with(&bd_core::context::counted_git(environment)?, environment, directory)
+/// `brd workspace` in `directory`, else in the current directory: no working tree is an answer, not an error; the
+/// commands it names of a lease carry `flags`, the global options of the command line
+pub fn workspace(environment: &Environment, directory: Option<&Path>, flags: &GlobalFlags) -> Result<WorkspaceOutput, CliError> {
+  workspace_with(&bd_core::context::counted_git(environment)?, environment, directory, flags)
 }
 
 /// `workspace` with the git of the caller
-pub fn workspace_with(git: &GitCommandExecutor, environment: &Environment, directory: Option<&Path>) -> Result<WorkspaceOutput, CliError> {
+pub fn workspace_with(git: &GitCommandExecutor, environment: &Environment, directory: Option<&Path>, flags: &GlobalFlags) -> Result<WorkspaceOutput, CliError> {
   let directory = directory.map_or_else(|| environment.cwd.clone(), |directory| environment.cwd.join(directory));
   if !directory.is_dir() {
     return Err(CliError::new(ErrorCode::NotARepository, format!("No such directory: {}", directory.display())));
@@ -131,10 +132,10 @@ pub fn workspace_with(git: &GitCommandExecutor, environment: &Environment, direc
     Some(refusal) => refusal_error(refusal),
     None => CliError::from(error),
   })?;
-  Ok(workspace_output(answer))
+  Ok(workspace_output(answer, flags))
 }
 
-fn workspace_output(answer: AgentWorkspace) -> WorkspaceOutput {
+fn workspace_output(answer: AgentWorkspace, flags: &GlobalFlags) -> WorkspaceOutput {
   let kind = match answer.kind {
     WorkspaceKind::Main => WorkspaceKindOutput::Main,
     WorkspaceKind::Linked => WorkspaceKindOutput::Linked,
@@ -160,7 +161,7 @@ fn workspace_output(answer: AgentWorkspace) -> WorkspaceOutput {
     WorkspaceKindOutput::Lease => this_lease.map_or_else(Vec::new, |lease| {
       // a lease with notes has their link in its worktree (`lease_notes`)
       let notes = Path::new(&top_level).join(NOTES_LINK).symlink_metadata().is_ok();
-      lease_next(&top_level, &lease.home, &lease.lease_id, pull_request.on, notes)
+      lease_next(&top_level, &lease.home, &lease.lease_id, pull_request.on, notes, flags)
     }),
     _ => Vec::new(),
   };

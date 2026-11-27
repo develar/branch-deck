@@ -174,7 +174,7 @@ fn a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_af
   assert_eq!(status["session"]["commit"]["body"], json!("Why b changes."), "{status}");
   let next = output["conflict"]["next"].as_str().unwrap();
   // both commands run in the lease, where the resolve session is: one `-C`, the lease, never the home checkout
-  let lease_bd = format!("brd -C {}", lease_word(&path));
+  let lease_bd = format!("brd -C {} --prefix {PREFIX}", lease_word(&path));
   assert!(next.contains(&format!("`{lease_bd} update --continue`")), "{next}");
   assert!(next.contains(&format!("`{lease_bd} lease pick` again")), "{next}");
   assert_eq!(next.matches(" -C ").count(), 2, "{next}");
@@ -199,8 +199,13 @@ fn a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_af
   // the update names the lease by its top level, which has forward slashes on Windows
   let repository = done["repository"].as_str().unwrap();
   assert_eq!(display(Path::new(repository)), display(Path::new(&path)));
-  // the brd of the update names the lease already, so its `next` has the one `-C` of `RepoContext::bd`, never a second
-  assert_eq!(done["next"], json!([format!("{CLI_NAME} -C {} lease pick", shell_word(repository))]), "{done}");
+  // the brd of the update names the lease already, so its `next` has the one `-C` of `RepoContext::bd`, never a second,
+  // and the `--prefix` of its command line
+  assert_eq!(
+    done["next"],
+    json!([format!("{CLI_NAME} -C {} --prefix {PREFIX} lease pick", shell_word(repository))]),
+    "{done}"
+  );
   assert_eq!(slot_git(&path, &["rev-parse", "HEAD~1"]), home, "the lease is on the tip of master");
 
   let (exit_code, output) = lease_pick(&fixture, &path, &[]);
@@ -466,7 +471,7 @@ fn a_lease_pick_whose_update_resolves_by_words_lands_nothing_and_names_the_files
   assert_eq!(output["update"]["resolved"][0]["files"][0]["path"], json!("w.txt"), "{output}");
   let next = output["conflict"]["next"].as_str().unwrap();
   assert!(
-    next.starts_with("Nothing landed.") && next.contains("by words in w.txt") && next.contains(&format!("`brd -C {} lease pick` again", lease_word(&path))),
+    next.starts_with("Nothing landed.") && next.contains("by words in w.txt") && next.contains(&format!("`brd -C {} --prefix {PREFIX} lease pick` again", lease_word(&path))),
     "{next}"
   );
   assert_eq!(fixture.repo.head(), home, "nothing landed");
@@ -499,7 +504,9 @@ fn a_lease_pick_refuses_a_rejected_message_until_the_reword_in_the_lease() {
   assert_error(&refused, exit_code, (4, "message_format"));
   let message = refused["error"]["message"].as_str().unwrap();
   assert!(
-    message.starts_with("brd lease pick: ") && message.contains(&format!("-C {} reword {}", lease_word(&path), &own[..8])) && message.contains("lease pick --allow-message-format"),
+    message.starts_with("brd lease pick: ")
+      && message.contains(&format!("-C {} --prefix {PREFIX} reword {}", lease_word(&path), &own[..8]))
+      && message.contains("lease pick --allow-message-format"),
     "{message}"
   );
   assert_eq!(fixture.repo.head(), home, "nothing landed");

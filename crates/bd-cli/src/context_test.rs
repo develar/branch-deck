@@ -5,7 +5,8 @@ use pretty_assertions::assert_eq;
 
 /// The brd of a context (`RepoContext::bd`) names its repository with one `-C`, whether the binary of brd is known (the
 /// app) or not (a test): a `next` command of the repository appends only its arguments to it, as `brd update --continue`
-/// in a lease does with its `brd -C <lease> lease pick`
+/// in a lease does with its `brd -C <lease> lease pick`. It carries the `--prefix` of the command line, and so does the
+/// brd of another worktree (`bd_in`); a prefix of the config is not named
 #[test_log::test]
 fn the_brd_of_a_context_names_its_repository_once() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -21,11 +22,14 @@ fn the_brd_of_a_context_names_its_repository_once() {
   let mut known = environment(repo.path());
   known.executable = Some(binary);
   let program = bd_command(&known).unwrap().for_shell();
-  let in_repository = format!(" -C {}", shell_word(&repository(&repo)));
+  let in_repository = format!(" -C {} --prefix {PREFIX}", shell_word(&repository(&repo)));
 
   let unknown = RepoContext::resolve(&environment(repo.path()), &options).unwrap();
   let known = RepoContext::resolve(&known, &options).unwrap();
+  assert_eq!(known.bd_in("/tmp/lease"), format!("{CLI_NAME} -C /tmp/lease --prefix {PREFIX}"));
   assert_eq!((unknown.bd, known.bd), (format!("{CLI_NAME}{in_repository}"), format!("{program}{in_repository}")));
+  let configured = context_with_the_config_prefix(&repo);
+  assert_eq!(configured.bd, format!("{CLI_NAME} -C {}", shell_word(&repository(&repo))));
 }
 
 /// The config the context read for the branch prefix is the one of the whole command (the sync takes it); after a wait

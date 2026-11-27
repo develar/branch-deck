@@ -7,7 +7,7 @@ use app_api::transport::AgentCliHost;
 use app_settings::claude_hook::HookTarget;
 use bd_cli::install::{InstallArgs, ide_app_status, install, install_ide_app, install_status, uninstall_ide_app};
 use bd_cli::unattended::hook_target;
-use bd_core::bd_command::bd_command;
+use bd_core::bd_command::{GlobalFlags, bd_command};
 use bd_core::context::Environment;
 use domain_types::error::ApiError;
 use sync_utils::child_process::{find_tool, login_shell_path};
@@ -39,7 +39,8 @@ impl AgentCliHost for AppAgentCli {
   fn command(&self, repository_path: &str) -> Result<AgentCliCommand, ApiError> {
     let command = bd_command(&Environment::from_process()).map_err(|e| ApiError::new(e.code, e.message))?;
     Ok(AgentCliCommand {
-      command: command.for_shell_in(repository_path),
+      // the app's command line has no options of brd
+      command: command.for_shell_in(repository_path, &GlobalFlags::default()),
       powershell: cfg!(windows),
     })
   }
