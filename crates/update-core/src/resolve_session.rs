@@ -829,6 +829,7 @@ fn outcome(
         proven: &state.landed_dropped,
         candidates: &state.landed_candidates,
         reads: None,
+        paths: None,
         not_landed: &not_landed,
       };
       // onto a local branch (a lease) nothing reached the baseline

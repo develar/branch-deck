@@ -647,19 +647,19 @@ impl LandedPairing {
 pub fn pair_landed(git_executor: &GitCommandExecutor, repo_path: &str, scope: LandedScope<'_>) -> Result<LandedPairing> {
   let reads = read_landed(git_executor, repo_path, scope)?;
   let before = pair_before_replay(git_executor, repo_path, &reads)?;
-  pair_after_conflict(git_executor, repo_path, scope, &reads, before)
+  pair_after_conflict(git_executor, repo_path, scope, &reads, before.pairing, &before.paths)
 }
 
 /// The sets of paths that commits change against their first parents (`changed_path_sets`), by commit
-pub(crate) type PathSets = HashMap<String, BTreeSet<Vec<u8>>>;
+pub type PathSets = HashMap<String, BTreeSet<Vec<u8>>>;
 
 /// The pairing before the replay (`pair_before_replay`) with what it read that the pairing after a conflict reads again
 #[derive(Debug, Clone, Default)]
 pub struct BeforeReplay {
   pub pairing: LandedPairing,
   /// The sets of paths of the local and the upstream commits that no twin took (`with_same_patch_by_authors`); none when
-  /// either side had no such commit
-  pub(crate) paths: PathSets,
+  /// either side had no such commit. The landed report of the check reads them too (`UpdatePlan::landed_paths`)
+  pub paths: PathSets,
 }
 
 /// The pairing of every check of an update before its replay: the twins (`pair_twins`), then the commits of the same
@@ -671,12 +671,19 @@ pub fn pair_before_replay(git_executor: &GitCommandExecutor, repo_path: &str, re
   Ok(BeforeReplay { pairing, paths })
 }
 
-/// The pairing of an update whose replay conflicted, after the pairing before it: the commits of the same patch by any
-/// author (`with_patch_identical`), then the candidates by the changed lines of a set of commits
-/// (`landed_by_lines::with_candidates_by_changed_lines`)
-pub fn pair_after_conflict(git_executor: &GitCommandExecutor, repo_path: &str, scope: LandedScope<'_>, reads: &LandedReads, before: BeforeReplay) -> Result<LandedPairing> {
-  let pairing = with_patch_identical(git_executor, repo_path, scope, reads, before.pairing)?;
-  with_candidates_by_changed_lines(git_executor, repo_path, reads, &before.paths, pairing)
+/// The pairing of an update whose replay conflicted, after the pairing before it (`pairing`, with the `paths` it read,
+/// `BeforeReplay`): the commits of the same patch by any author (`with_patch_identical`), then the candidates by the
+/// changed lines of a set of commits (`landed_by_lines::with_candidates_by_changed_lines`)
+pub fn pair_after_conflict(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  scope: LandedScope<'_>,
+  reads: &LandedReads,
+  pairing: LandedPairing,
+  paths: &PathSets,
+) -> Result<LandedPairing> {
+  let pairing = with_patch_identical(git_executor, repo_path, scope, reads, pairing)?;
+  with_candidates_by_changed_lines(git_executor, repo_path, reads, paths, pairing)
 }
 
 /// Pair each local commit of `reads` with the upstream commit of its `CommitKey`, one to one, the oldest local commit of
@@ -769,7 +776,7 @@ fn with_same_patch_by_authors(git_executor: &GitCommandExecutor, repo_path: &str
 
 /// The set of paths each commit changes against its first parent, by commit: one `diff-tree --stdin -r -z --name-only
 /// --no-renames`, whose output names a commit before its paths; a commit without changes has none
-fn changed_path_sets(git_executor: &GitCommandExecutor, repo_path: &str, commits: impl IntoIterator<Item = impl AsRef<str>>) -> Result<PathSets> {
+pub(crate) fn changed_path_sets(git_executor: &GitCommandExecutor, repo_path: &str, commits: impl IntoIterator<Item = impl AsRef<str>>) -> Result<PathSets> {
   let commits: Vec<String> = commits.into_iter().map(|commit| commit.as_ref().to_string()).collect();
   let output = diff_tree_stdin(git_executor, repo_path, &["diff-tree", "--stdin", "-r", "-z", "--name-only", "--no-renames"], &commits)?;
   let ids: HashSet<&[u8]> = commits.iter().map(String::as_bytes).collect();

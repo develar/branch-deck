@@ -1696,7 +1696,7 @@ Details:
 - **Already upstream.** `replay` drops a local commit that becomes empty, e.g. one merged upstream from a pull request.
   The result reports it: `rev-list --count N ^U` replayed against `rev-list --count HEAD ^U ^<previous tips>` local.
   `brd update` names each in `dropped` with `proof: empty`: the commits of the landed report that the pairing did not
-  leave out, read with no process more.
+  leave out, read with no process more, with the baseline commit the report names (a squash, below) as `upstream`.
   **Landed commits left out.** Before the replay, the check pairs each local commit L with the upstream commit T of
   its key (author email, author time, subject without the `(prefix)`; `LandedLookup::ByKey`,
   `landed_pairing::pair_twins`), and keeps the result as the `ReplayPlan` of the plan, which a resolve session replays.
@@ -1763,7 +1763,15 @@ Details:
   local commits (`--fixed-strings --author=<email>`, so a monorepo upstream stays small), which the pairing of the
   check reads before its replay and hands to the landing (`LandedReads`), and the ones that stay (`N ^U`). None when the upstream has nothing since the merge base (up to date): no upstream commit can
   carry a local one. A commit the replay left out landed as the upstream commit of its proof, also when the upstream
-  reworded it (one `log --no-walk` for such commits by other authors). See "Landed commits" in
+  reworded it (one `log --no-walk` for such commits by other authors). A commit the replay left empty without a key,
+  a proof or a candidate (a pull request squashed by GitHub, whose replay onto the squash is clean) landed as the
+  squash its changed lines sum to (`landed_by_lines::squashes_of_gone`): the targets are the upstream commits of the
+  gone commits' authors that nothing names (no proof, no candidate, no key of a local commit, also of one that stays),
+  the sets hold only gone commits, and a set is named only when no set of another target shares a commit with it (the
+  upstream made a change, reverted it and made it again: no name); then a fixup of a commit just named takes its squash.
+  One `diff-tree -p -U0` when the paths of a target are covered, on the sets of paths the pairing before the replay read;
+  a session finish reads them first (one `diff-tree --name-only`) and leaves out the commits the user dropped
+  (`--drop-empty`). No process without gone commits or without a target. See "Landed commits" in
   [Integration Detection](integration-detection.md); the report is
   `branch-deck/landed.json` in the worktree's git directory, written through a temporary file and a rename, never git
   state.
@@ -2154,8 +2162,8 @@ be rebuilt from the session ref.
    finish back.
 3. The files follow (step 10). On a failure the branch, the session ref (back to `applying`) and the notes ref move
    back together in one transaction, under the same check.
-4. The session ref is deleted with CAS on `applied`, the landed report is written as after an update, and the copies
-   are removed.
+4. The session ref is deleted with CAS on `applied`, the landed report is written as after an update (its own `log`s
+   and sets of paths, without the commits the user dropped), and the copies are removed.
 
 **Crash recovery.** A process killed at a step leaves `applying` or `applied`. The next `--continue` completes it,
 except in the last case below:

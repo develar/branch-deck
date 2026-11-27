@@ -1,8 +1,10 @@
+use crate::landed_by_lines::squashes_of_gone;
 use crate::landed_pairing::{
   CandidateBy, CommitKey, Interdiff, LandedCandidate, LandedDrop, LandedPairing, LandedProof, LandedScope, PathLines, interdiffs, pair_after_conflict, pair_before_replay,
   pair_landed, pair_twins, read_landed, read_landed_with_paths, walk_commits,
 };
 use pretty_assertions::assert_eq;
+use std::collections::{HashMap, HashSet};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::history::{HistoryCommit, numbered_lines};
@@ -67,7 +69,7 @@ fn pairings(repo: &TestRepo) -> (LandedPairing, LandedPairing) {
   in_scope(repo, |scope| {
     let reads = read_landed(repo.git_executor(), repo.path_str(), scope).unwrap();
     let before = pair_before_replay(repo.git_executor(), repo.path_str(), &reads).unwrap();
-    let all = pair_after_conflict(repo.git_executor(), repo.path_str(), scope, &reads, before.clone()).unwrap();
+    let all = pair_after_conflict(repo.git_executor(), repo.path_str(), scope, &reads, before.pairing.clone(), &before.paths).unwrap();
     assert_eq!(all, pair_landed(repo.git_executor(), repo.path_str(), scope).unwrap());
     (all, before.pairing)
   })
@@ -577,12 +579,9 @@ fn a_pull_request_that_updated_a_binary_file_twice_is_one_candidate() {
   assert_eq!(pairing(&repo).candidates, [by_lines(&local[0], &[&local[1]], &upstream)]);
 }
 
-/// A change made twice locally (A, its revert, A again) with one squash upstream: either A alone sums to it, so neither
-/// is its candidate
-#[test]
-fn two_sets_equal_to_one_squash_make_no_candidate() {
-  let repo = sides();
-  repo.commit_history(
+/// A change made twice locally (A, its revert, A again) with one squash of it upstream: the local commits
+fn change_made_twice_squashed_once(repo: &TestRepo) -> Vec<String> {
+  let local = repo.commit_history(
     "refs/heads/local",
     &[
       at("(feature) Change line 5", &[(5, "B")], 200),
@@ -590,7 +589,15 @@ fn two_sets_equal_to_one_squash_make_no_candidate() {
       at("(feature) Change line 5 once more", &[(5, "B")], 300),
     ],
   );
-  squash(&repo, at("Change line 5 (#1)", &[(5, "B")], 900));
+  squash(repo, at("Change line 5 (#1)", &[(5, "B")], 900));
+  local
+}
+
+/// `change_made_twice_squashed_once`: either A alone sums to the squash, so neither is its candidate
+#[test]
+fn two_sets_equal_to_one_squash_make_no_candidate() {
+  let repo = sides();
+  change_made_twice_squashed_once(&repo);
   assert_eq!(pairing(&repo).candidates, []);
 }
 
@@ -616,7 +623,7 @@ fn the_candidates_by_changed_lines_read_one_diff_and_none_without_a_set_of_paths
       let reads = read_landed(repo.git_executor(), repo.path_str(), scope).unwrap();
       let before = pair_before_replay(repo.git_executor(), repo.path_str(), &reads).unwrap();
       let git = counting();
-      pair_after_conflict(&git, repo.path_str(), scope, &reads, before).unwrap();
+      pair_after_conflict(&git, repo.path_str(), scope, &reads, before.pairing, &before.paths).unwrap();
       processes(&git)
     })
   };
@@ -625,4 +632,90 @@ fn the_candidates_by_changed_lines_read_one_diff_and_none_without_a_set_of_paths
     [("diff-tree".to_string(), 1), ("rev-list".to_string(), 1)]
   );
   assert_eq!(count(HistoryCommit::new("Other file (#2)", &[("g.txt", "g\n")]).at(900)), [("rev-list".to_string(), 1)]);
+}
+
+/// The baseline commit each of the `gone` local commits landed as (`squashes_of_gone`) when `named` holds the other
+/// baseline commits: the same with the sets of paths the check read and without them; the processes without them
+fn squashes_naming(repo: &TestRepo, gone: &[String], named: &[&str]) -> (HashMap<String, String>, Vec<(String, u32)>) {
+  in_scope(repo, |scope| {
+    let reads = read_landed(repo.git_executor(), repo.path_str(), scope).unwrap();
+    let before = pair_before_replay(repo.git_executor(), repo.path_str(), &reads).unwrap();
+    let gone: Vec<&str> = gone.iter().map(String::as_str).collect();
+    let named: HashSet<&str> = named.iter().copied().collect();
+    let with_paths = squashes_of_gone(repo.git_executor(), repo.path_str(), &reads, &gone, &named, Some(&before.paths)).unwrap();
+    let git = counting();
+    let found = squashes_of_gone(&git, repo.path_str(), &reads, &gone, &named, None).unwrap();
+    assert_eq!(found, with_paths);
+    (found, processes(&git))
+  })
+}
+
+/// `squashes_naming` with nothing named
+fn squashes(repo: &TestRepo, gone: &[String]) -> HashMap<String, String> {
+  squashes_naming(repo, gone, &[]).0
+}
+
+/// Each of `commits` as landed in `squash`
+fn all_in(commits: &[String], squash: &str) -> HashMap<String, String> {
+  commits.iter().map(|commit| (commit.clone(), squash.to_string())).collect()
+}
+
+/// A pull request of two commits of two files went empty in a clean replay onto its squash under another identity: both
+/// landed as the squash, read with one `diff-tree --name-only` and one `diff-tree -p -U0`; a squash that something else
+/// names is none of theirs
+#[test]
+fn the_gone_commits_that_sum_to_an_upstream_commit_of_their_author_name_it() {
+  let repo = sides();
+  let local = repo.commit_history(
+    "refs/heads/local",
+    &[
+      at("(feature) Change line 5", &[(5, "B")], 200),
+      HistoryCommit::new("(feature) Add g", &[("g.txt", "g\n")]).at(300),
+    ],
+  );
+  let upstream = squash(
+    &repo,
+    HistoryCommit::new("Feature (#1)", &[("f.txt", &numbered_lines(&[(5, "B")])), ("g.txt", "g\n")]).at(900),
+  );
+  let (found, processes) = squashes_naming(&repo, &local, &[]);
+  assert_eq!(found, all_in(&local, &upstream));
+  assert_eq!(processes, [("diff-tree".to_string(), 2)]);
+  assert_eq!(squashes_naming(&repo, &local, &[&upstream]).0, HashMap::new());
+}
+
+/// `change_made_twice_squashed_once`, all gone: either A alone sums to the squash, so neither names it
+#[test]
+fn two_sets_of_gone_commits_equal_to_one_squash_name_nothing() {
+  let repo = sides();
+  let local = change_made_twice_squashed_once(&repo);
+  assert_eq!(squashes(&repo, &local), HashMap::new());
+}
+
+/// The upstream made the change of a gone commit, reverted it and made it again: the commit sums to either, so it names
+/// neither
+#[test]
+fn a_set_equal_to_two_upstream_commits_names_neither() {
+  let repo = sides();
+  let local = repo.commit_history("refs/heads/local", &[at("(feature) Change line 5", &[(5, "B")], 200)]);
+  repo.commit_history(
+    "refs/heads/upstream",
+    &[
+      at("Change line 5 (#1)", &[(5, "B")], 900),
+      at("Revert \"Change line 5 (#1)\"", &[], 910),
+      at("Change line 5 again (#3)", &[(5, "B")], 920),
+    ],
+  );
+  assert_eq!(squashes(&repo, &local), HashMap::new());
+}
+
+/// Without a baseline commit of the author of the gone commits that nothing names the search runs no process; with one
+/// of other paths only their `diff-tree --name-only`
+#[test]
+fn the_gone_commits_read_no_diff_without_a_baseline_commit_of_their_author() {
+  let repo = sides();
+  let local = repo.commit_history("refs/heads/local", &[change_line_5()]);
+  commit_by_another_author(&repo, "Change line 5 (#1)", &[(5, "five")]);
+  assert_eq!(squashes_naming(&repo, &local, &[]), (HashMap::new(), Vec::new()));
+  squash(&repo, HistoryCommit::new("Other file (#2)", &[("g.txt", "g\n")]).at(900));
+  assert_eq!(squashes_naming(&repo, &local, &[]), (HashMap::new(), vec![("diff-tree".to_string(), 1)]));
 }

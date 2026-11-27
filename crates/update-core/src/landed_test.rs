@@ -12,7 +12,7 @@ use pretty_assertions::assert_eq;
 use std::fs;
 use std::time::Duration;
 use sync_core::baseline::check_baseline_update;
-use sync_core::landed::{dismiss_landed, read_report, record_sync, record_update};
+use sync_core::landed::{LandedQuery, dismiss_landed, find_landed, read_report, record_sync, record_update, remaining_revs};
 use sync_core::lease_state::{LeaseGuard, LeasePaths};
 use sync_core::sync::{SyncOptions, sync_branches};
 use test_log::test;
@@ -25,10 +25,6 @@ fn land_as(upstream: &TestRepo, clone: &TestRepo, local: &str, message: &str, fi
   let author = git(clone, &["log", "-1", "--format=%an%x00%ae%x00%ad", "--date=raw", local]);
   let mut fields = author.split('\0');
   let (name, email, date) = (fields.next().unwrap(), fields.next().unwrap(), fields.next().unwrap());
-  for (file, content) in files {
-    fs::write(upstream.path().join(file), content).unwrap();
-    git(upstream, &["add", file]);
-  }
   let env = [
     ("GIT_AUTHOR_NAME", name),
     ("GIT_AUTHOR_EMAIL", email),
@@ -36,7 +32,16 @@ fn land_as(upstream: &TestRepo, clone: &TestRepo, local: &str, message: &str, fi
     ("GIT_COMMITTER_NAME", "Patronus"),
     ("GIT_COMMITTER_EMAIL", "patronus@example.com"),
   ];
-  upstream.git_executor().cmd(&["commit", "-m", message], path(upstream)).env(&env).text().unwrap();
+  commit_upstream(upstream, message, files, &env)
+}
+
+/// Commit `files` upstream with the identities of `env`; the commit
+fn commit_upstream(upstream: &TestRepo, message: &str, files: &[(&str, &str)], env: &[(&str, &str)]) -> String {
+  for (file, content) in files {
+    fs::write(upstream.path().join(file), content).unwrap();
+    git(upstream, &["add", file]);
+  }
+  upstream.git_executor().cmd(&["commit", "-m", message], path(upstream)).env(env).text().unwrap();
   upstream.head()
 }
 
@@ -241,15 +246,97 @@ fn commit_amended_after_the_push_is_never_left_out() {
   assert_eq!(clone.head(), head, "nothing changed, the amend is kept");
 }
 
+/// `setup` with the local `(auth) Add login` and `(auth) Add logout`, which the upstream squashed into `Auth (#12)` under
+/// another key, fetched: the ids of the two and of the squash
+fn auth_squashed_upstream() -> (Setup, String, String, String) {
+  let setup = setup();
+  let login = setup.clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  let logout = setup.clone.create_commit("(auth) Add logout", "logout.txt", "logout\n");
+  let squash = setup
+    .upstream
+    .create_commit_with_files("Auth (#12)", &[("login.txt", "login\n"), ("logout.txt", "logout\n")]);
+  git(&setup.clone, &["fetch", "origin"]);
+  (setup, login, logout, squash)
+}
+
+/// The replay onto a squash of the commits of a branch leaves them empty: their changed lines sum to the squash, so the
+/// preview and the update name it for both
 #[test]
-fn branch_squashed_upstream_landed_without_an_upstream_commit() {
+fn a_branch_squashed_upstream_landed_as_the_squash_after_a_clean_replay() {
+  let (Setup { upstream: _upstream, clone }, _, _, squash) = auth_squashed_upstream();
+  assert_landed(&clone, &[format!("auth: Add login -> {squash}, Add logout -> {squash} | 0 stay")]);
+  assert_eq!(clone.head(), git(&clone, &["rev-parse", "origin/master"]));
+}
+
+/// The preview of `clone`, a clean rebase, and its update both land `expected`
+fn assert_landed(clone: &TestRepo, expected: &[String]) {
+  assert_eq!(clean_landing(clone), expected);
+  assert_eq!(describe(&update(clone).unwrap().landed), expected);
+}
+
+/// The upstream made the change of a local commit in two commits of other changes (it added more and dropped it again):
+/// the replay leaves the commit empty, and no one baseline commit has its lines, so it landed without one
+#[test]
+fn a_change_split_over_two_upstream_commits_lands_without_an_upstream_commit() {
+  let Setup { upstream, clone } = setup();
+  clone.create_commit("(auth) Add a", "a.txt", "a\n");
+  upstream.create_commit("Add a and more", "a.txt", "a\nmore\n");
+  upstream.create_commit("Drop more", "a.txt", "a\n");
+  git(&clone, &["fetch", "origin"]);
+  assert_landed(&clone, &["auth: Add a -> squashed | 0 stay".to_string()]);
+}
+
+/// A fixup of a squashed commit whose change another author made upstream: the replay leaves it empty too, its lines are
+/// none of the squash's, and it landed with its target as the squash
+#[test]
+fn a_fixup_of_a_named_commit_lands_as_its_squash() {
   let Setup { upstream, clone } = setup();
   clone.create_commit("(auth) Add login", "login.txt", "login\n");
   clone.create_commit("(auth) Add logout", "logout.txt", "logout\n");
-  upstream.create_commit_with_files("Auth (#12)", &[("login.txt", "login\n"), ("logout.txt", "logout\n")]);
+  clone.create_commit("(auth) fixup! Add login", "g.txt", "g\n");
+  let squash = upstream.create_commit_with_files("Auth (#12)", &[("login.txt", "login\n"), ("logout.txt", "logout\n")]);
+  commit_upstream(
+    &upstream,
+    "Add g",
+    &[("g.txt", "g\n")],
+    &[("GIT_AUTHOR_NAME", "Other"), ("GIT_AUTHOR_EMAIL", "other@example.com")],
+  );
   git(&clone, &["fetch", "origin"]);
+  assert_landed(
+    &clone,
+    &[format!("auth: Add login -> {squash}, Add logout -> {squash}, fixup! Add login -> {squash} | 0 stay")],
+  );
+}
 
-  assert_eq!(landing(&clone), vec!["auth: Add login -> squashed, Add logout -> squashed | 0 stay".to_string()]);
+/// The finish of a session in which the user dropped `(auth) Add logout` (`--drop-empty`) and the replay left
+/// `(auth) Add login` empty: the dropped commit did not land and takes no part in the search of a squash, so the other
+/// one, alone no sum of the squash, landed without a baseline commit. Without the user's drop both name the squash
+#[test]
+fn a_commit_dropped_by_the_user_in_a_session_names_no_squash() {
+  let (Setup { upstream: _upstream, clone }, _, logout, squash) = auth_squashed_upstream();
+  let head = clone.head();
+  let upstream_head = git(&clone, &["rev-parse", "origin/master"]);
+  let base = git(&clone, &["merge-base", &head, &upstream_head]);
+  let local = vec![head, format!("^{upstream_head}")];
+  let remaining = remaining_revs(&upstream_head, &upstream_head);
+  let landed = |not_landed: &[String]| {
+    let query = LandedQuery {
+      local: &local,
+      remaining: Some(&remaining),
+      base: &base,
+      upstream_head: &upstream_head,
+      gone_is_landed: true,
+      grouping: &GroupingInputs::default(),
+      proven: &[],
+      candidates: &[],
+      reads: None,
+      paths: None,
+      not_landed,
+    };
+    describe(&find_landed(clone.git_executor(), path(&clone), query).unwrap())
+  };
+  assert_eq!(landed(&[logout]), ["auth: Add login -> squashed | 0 stay"]);
+  assert_eq!(landed(&[]), [format!("auth: Add login -> {squash}, Add logout -> {squash} | 0 stay")]);
 }
 
 #[test]
@@ -456,9 +543,7 @@ fn landed_as_squash(squash: &str, stay: usize) -> Vec<String> {
 fn land_squashed_change_b(upstream: &TestRepo, clone: &TestRepo, stay: usize) -> String {
   let squash = squash_upstream(upstream, "feat: change b (#1)", &[("f.txt", "a\nB2\nc\nd\n")]);
   git(clone, &["fetch", "origin"]);
-  let expected = landed_as_squash(&squash, stay);
-  assert_eq!(clean_landing(clone), expected);
-  assert_eq!(describe(&update(clone).unwrap().landed), expected);
+  assert_landed(clone, &landed_as_squash(&squash, stay));
   squash
 }
 
@@ -484,9 +569,7 @@ fn a_pull_request_squashed_upstream_landed_as_the_squash_when_a_later_commit_rew
   let squash = squash_upstream(&upstream, "Feature (#1)", &[("f.txt", "a\nB2\nc\nd\n"), ("g.txt", "g\n")]);
   git(&clone, &["fetch", "origin"]);
 
-  let expected = vec![format!("feature: Change b -> {squash}, Rework b -> {squash}, Add g -> {squash} | 0 stay")];
-  assert_eq!(clean_landing(&clone), expected);
-  assert_eq!(describe(&update(&clone).unwrap().landed), expected);
+  assert_landed(&clone, &[format!("feature: Change b -> {squash}, Rework b -> {squash}, Add g -> {squash} | 0 stay")]);
   assert_eq!(clone.head(), git(&clone, &["rev-parse", "origin/master"]));
 }
 

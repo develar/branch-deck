@@ -26,7 +26,8 @@ use domain_types::update_project::UpdateCheck;
 use domain_types::upstream_commit::UpstreamCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::autosquash_targets::target_of_each_fixup;
-use git_ops::landed_pairing::{CommitKey, KeyedCommit, LandedCandidate, LandedDrop, LandedReads, by_key, read_keyed, read_local, read_upstream};
+use git_ops::landed_by_lines::squashes_of_gone;
+use git_ops::landed_pairing::{CommitKey, KeyedCommit, LandedCandidate, LandedDrop, LandedReads, PathSets, by_key, read_keyed, read_local, read_upstream};
 use git_ops::revs::{known_dirs, read_head};
 use git_ops::update_branch::UpdatePlan;
 use history_rewrite::commit_grouper::GroupingInputs;
@@ -66,6 +67,12 @@ pub struct LandedQuery<'a> {
   /// The local commits of `local` and the upstream commits by their authors, when the check read them for its pairing
   /// (`UpdatePlan::landed_reads`): no `log` of them again
   pub reads: Option<&'a LandedReads>,
+  /// The sets of paths that the pairing of the check read (`UpdatePlan::landed_paths`): the search of the squash of the
+  /// gone commits reads no paths of them again
+  pub paths: Option<&'a PathSets>,
+  /// The local commits that are gone for another reason than the upstream: a resolution dropped them (`--drop-empty`).
+  /// They did not land, and no squash is looked for with them
+  pub not_landed: &'a [String],
 }
 
 /// The subject as the branch shows it: without the `(prefix)`, a fixup keeps its marker (`fixup! Add login`)
@@ -80,11 +87,14 @@ fn shown_subject(subject: &str) -> String {
 /// The local commits of the query that landed, grouped by branch in the order of their oldest commit. Three `git log`
 /// processes: the local commits, the ones that stay, and the upstream commits since the merge base by the authors of
 /// the local commits, the first and the last none with the `reads` of the check; one more for the upstream commits of
-/// `proven` by other authors.
+/// `proven` by other authors. When the replay is known (`gone_is_landed`) and gone commits have no counterpart, the
+/// squash their changed lines sum to (`landed_by_lines::squashes_of_gone`): one `diff-tree -p -U0` when an upstream
+/// commit of their authors that nothing names has paths they cover, one `diff-tree --name-only` before it without the
+/// `paths` of the check, none without such an upstream commit; a failure of it leaves them landed without a name.
 #[instrument(skip(git_executor, query), fields(local = ?query.local))]
 pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: LandedQuery<'_>) -> Result<Vec<LandedBranch>> {
   let read;
-  let LandedReads { local, upstream } = if let Some(reads) = query.reads {
+  let reads = if let Some(reads) = query.reads {
     reads
   } else {
     let local = read_local(git_executor, repo_path, query.local)?;
@@ -96,6 +106,7 @@ pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: La
     read = LandedReads { local, upstream };
     &read
   };
+  let LandedReads { local, upstream } = reads;
   if local.is_empty() {
     return Ok(Vec::new());
   }
@@ -128,12 +139,17 @@ pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: La
   let mut landed: HashMap<&str, Option<UpstreamCommit>> = HashMap::new();
   // gone without a counterpart
   let mut unmatched: Vec<&Commit> = Vec::new();
+  let mut local_keys: HashSet<CommitKey> = HashSet::new();
   for commit in local {
+    if query.not_landed.contains(&commit.id) {
+      continue;
+    }
     if let Some(upstream) = proven.get(commit.id.as_str()) {
       landed.insert(&commit.id, Some(upstream.clone()));
       continue;
     }
     let key = CommitKey::from_message(&commit.author_email, commit.author_timestamp, &commit.message);
+    local_keys.insert(key.clone());
     if remaining_keys.as_ref().is_some_and(|keys| keys.contains(&key)) {
       continue;
     }
@@ -153,10 +169,50 @@ pub fn find_landed(git_executor: &GitCommandExecutor, repo_path: &str, query: La
   if !unmatched.is_empty() {
     // a fixup folded upstream (Safe Push autosquashes) landed with its target
     let target_of = target_of_each_fixup(local);
+    let upstream_of_target =
+      |landed: &HashMap<&str, Option<UpstreamCommit>>, commit: &Commit| target_of.get(commit.id.as_str()).and_then(|target| landed.get(target.as_str())).cloned().flatten();
+    let mut gone: Vec<&Commit> = Vec::new();
     for commit in unmatched {
-      let target_upstream = target_of.get(commit.id.as_str()).and_then(|target| landed.get(target.as_str())).cloned().flatten();
-      if target_upstream.is_some() || query.gone_is_landed {
-        landed.insert(&commit.id, target_upstream);
+      match upstream_of_target(&landed, commit) {
+        Some(target_upstream) => {
+          landed.insert(&commit.id, Some(target_upstream));
+        }
+        None if query.gone_is_landed => gone.push(commit),
+        None => {}
+      }
+    }
+    if !gone.is_empty() {
+      // the baseline commits something already names, also the twin of a commit that stays, are no squash of them
+      let mut named: HashSet<&str> = upstream
+        .iter()
+        .filter(|commit| local_keys.contains(&commit.key) || remaining_keys.as_ref().is_some_and(|keys| keys.contains(&commit.key)))
+        .map(|commit| commit.upstream.id.as_str())
+        .collect();
+      named.extend(query.proven.iter().map(|drop| drop.upstream.as_str()));
+      named.extend(query.candidates.iter().map(|candidate| candidate.upstream.as_str()));
+      let ids: Vec<&str> = gone.iter().map(|commit| commit.id.as_str()).collect();
+      // a name is all the search adds: without it they still landed
+      let squashes = squashes_of_gone(git_executor, repo_path, reads, &ids, &named, query.paths).unwrap_or_else(|e| {
+        warn!(error = %format!("{e:#}"), "can't look for the squash of the gone commits");
+        HashMap::new()
+      });
+      let squashes = upstream_of(
+        git_executor,
+        repo_path,
+        squashes.iter().map(|(commit, squash)| (commit.as_str(), squash.as_str())),
+        upstream,
+      )?;
+      for commit in &gone {
+        if let Some(squash) = squashes.get(commit.id.as_str()) {
+          landed.insert(&commit.id, Some(squash.clone()));
+        }
+      }
+      // again: a fixup of a target just named takes its squash
+      for commit in gone {
+        if !landed.contains_key(commit.id.as_str()) {
+          let target_upstream = upstream_of_target(&landed, commit);
+          landed.insert(&commit.id, target_upstream);
+        }
       }
     }
   }
@@ -291,6 +347,8 @@ pub fn find_landing(git_executor: &GitCommandExecutor, repo_path: &str, plan: &U
       proven: plan.landed_drops(),
       candidates: plan.landed_candidates(),
       reads: plan.landed_reads(),
+      paths: plan.landed_paths(),
+      not_landed: &[],
     },
   )?;
   let mut cache = landing_cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -389,6 +447,8 @@ pub fn record_sync(
       proven: &[],
       candidates: &[],
       reads: None,
+      paths: None,
+      not_landed: &[],
     };
     match find_landed(git_executor, repo_path, query) {
       Ok(found) => {

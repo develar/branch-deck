@@ -1988,6 +1988,38 @@ fn a_clean_replay_that_loses_bindings_opens_a_lost_bindings_round_whose_fixup_fi
   assert!(git(&clone, &["notes", "--ref=refs/notes/branch-deck/resolve", "show", "HEAD"]).contains("lost-binding\tsrc/Launch.kt\tbackend"));
 }
 
+/// A session that a clean replay losing bindings opened, whose replay also left two commits of a pull request empty that
+/// the baseline squashed under another key: no pairing ran after a conflict, so the finish reads the changed lines of the
+/// two and names the squash for both, in `dropped` (`proof: empty`) and in `landed`
+#[test_log::test]
+fn a_session_finish_names_the_squash_of_its_commits_that_went_empty() {
+  let (upstream, clone) = TestRepo::upstream_and_clone_losing_bindings(false);
+  let login = clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  let logout = clone.create_commit("(auth) Add logout", "logout.txt", "logout\n");
+  let squash = upstream.create_commit_with_files("Auth (#12)", &[("login.txt", "login\n"), ("logout.txt", "logout\n")]);
+  let (exit_code, round) = run_in(&clone, &["--full-ids", "update"]);
+  assert_eq!((exit_code, &round["session"]["round_kind"]), (1, &json!("lost_bindings")), "{round}");
+
+  let (exit_code, done) = run_in(&clone, &["--full-ids", "update", "--continue", "--keep-name", "backend", "--keep-name", "rethrow"]);
+  assert_eq!(exit_code, 0, "{done}");
+  assert_eq!(
+    done["dropped"],
+    json!([
+      { "commit": login, "subject": "Add login", "upstream": squash, "proof": "empty" },
+      { "commit": logout, "subject": "Add logout", "upstream": squash, "proof": "empty" },
+    ]),
+    "{done}"
+  );
+  let landed: Vec<(&Value, &Value)> = done["landed"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .flat_map(|branch| branch["commits"].as_array().unwrap())
+    .map(|commit| (&commit["subject"], &commit["upstream"]))
+    .collect();
+  assert_eq!(landed, [(&json!("Add login"), &json!(squash)), (&json!("Add logout"), &json!(squash))], "{done}");
+}
+
 /// `brd update --dry-run` reads the lost bindings of its replay as the update does: a conflict (exit 1) that names
 /// each, nothing written
 #[test_log::test]

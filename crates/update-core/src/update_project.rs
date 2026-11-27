@@ -11,7 +11,7 @@ use domain_types::landed::LandedBranch;
 use domain_types::update_project::{KeptLostBinding, UpdateCheck, UpdateLostBinding, UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_signing::{Signing, commit_signing};
-use git_ops::landed_pairing::{LandedCandidate, LandedDrop, LandedReads};
+use git_ops::landed_pairing::{LandedCandidate, LandedDrop, LandedReads, PathSets};
 use git_ops::lfs::prefetch_lfs_objects;
 use git_ops::revs::{Worktree, current_worktree, is_object_id, known_dirs, ref_exists, with_dirs_of};
 use git_ops::update_branch::{
@@ -360,6 +360,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
       proven: plan.landed_drops(),
       candidates: plan.landed_candidates(),
       reads: plan.landed_reads(),
+      paths: plan.landed_paths(),
       not_landed: &[],
     };
     record_landed_update(git_executor, repo_path, &report, &grouping, options.lease)
@@ -480,8 +481,10 @@ pub(crate) struct LandedReport<'a> {
   pub candidates: &'a [LandedCandidate],
   /// What the pairing of the check read (`UpdatePlan::landed_reads`); `None` after a resolve session
   pub reads: Option<&'a LandedReads>,
+  /// The sets of paths the pairing of the check read (`UpdatePlan::landed_paths`); `None` after a resolve session
+  pub paths: Option<&'a PathSets>,
   /// The local commits that are gone for another reason: a resolution dropped them, and no upstream commit has their
-  /// identity
+  /// identity. They did not land, and no squash is looked for with them (`LandedQuery::not_landed`)
   pub not_landed: &'a [String],
 }
 
@@ -500,6 +503,7 @@ pub(crate) fn record_landed_update(
     proven,
     candidates,
     reads,
+    paths,
     not_landed,
   } = *report;
   let result = (|| {
@@ -518,15 +522,10 @@ pub(crate) fn record_landed_update(
         proven,
         candidates,
         reads,
+        paths,
+        not_landed,
       },
     )?;
-    let mut landed = landed;
-    if !not_landed.is_empty() {
-      for branch in &mut landed {
-        branch.commits.retain(|commit| !not_landed.contains(&commit.id));
-      }
-      landed.retain(|branch| !branch.commits.is_empty());
-    }
     record_update(git_executor, repo_path, check, new_head, landed.clone(), lease)?;
     anyhow::Ok(landed)
   })();

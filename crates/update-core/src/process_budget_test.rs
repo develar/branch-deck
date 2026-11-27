@@ -100,6 +100,50 @@ fn an_update_after_its_fetch() {
   assert_processes(&git, UPDATE);
 }
 
+/// Update Project after its fetch of two local commits that the upstream squashed into one commit under another key:
+/// the replay leaves both empty, and the landed report sums their changed lines to the squash, one `diff-tree -p -U0`
+/// on the sets of paths that the pairing before the replay read (`diff-tree --name-only`, as in `an_update`). The move
+/// takes the upstream, whose tree is HEAD's: no file follows (no `read-tree` nor `update-index`, one `update-ref` less
+/// than `an_update`)
+#[test]
+fn a_clean_update_whose_commits_went_empty_reads_their_changed_lines_once() {
+  let fixture = setup();
+  fixture.clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  fixture.clone.create_commit("(auth) Add logout", "logout.txt", "logout\n");
+  fixture
+    .upstream
+    .create_commit_with_files("Auth (#12)", &[("login.txt", "login\n"), ("logout.txt", "logout\n")]);
+  fixture.clone.git(&["fetch", "--quiet", "origin"]);
+  let git = counting();
+  let result = app_update(&git, &fixture.clone, false);
+  assert!(result.applied.is_some(), "{result:?}");
+  assert_eq!(fixture.clone.head(), fixture.upstream.head());
+  assert!(
+    result.landed[0]
+      .commits
+      .iter()
+      .all(|commit| commit.upstream.as_ref().map(|squash| &squash.id) == Some(&fixture.upstream.head())),
+    "{result:?}"
+  );
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 1),
+      ("config", 2),
+      ("diff-tree", 3),
+      ("for-each-ref", 1),
+      ("log", 3),
+      ("merge-base", 2),
+      ("remote", 1),
+      ("replay", 1),
+      ("rev-list", 3),
+      ("rev-parse", 5),
+      ("symbolic-ref", 4),
+      ("update-ref", 1),
+    ],
+  );
+}
+
 /// `brd update` of the rebase of `an_update_after_its_fetch` (`update_and_resolve`): the same update after the look for
 /// a resolve session of the worktree (one `cat-file` of its ref, none), and after the move the generated files that the
 /// local commit and the upstream both changed, for `verify.regenerate`: two `diff-tree`, the paths of each side since the

@@ -178,8 +178,11 @@ flowchart TB
    replay, a gone commit of a candidate landed as its upstream commit, which names a squash. Where the check
    replayed the local commits onto the
    upstream, a commit `git replay` drops as empty is landed even without a key match: a fixup with its target, or a
-   branch squashed into one commit (no upstream commit then). Without a replay (a commit the user squashed, reworded
-   or dropped between two syncs is also gone), only key matches count.
+   branch squashed into one commit, named as the one baseline commit of its author that the smallest set of the gone
+   commits sums to by the same changed lines (`landed_by_lines::squashes_of_gone`; no upstream commit when none or two
+   do: an upstream change split over two commits, or made twice). The replay is the proof that the upstream has their
+   change; the lines only name where. Without a replay (a commit the user squashed, reworded or dropped between two
+   syncs is also gone), only key matches count.
 
    Three moments, three places, no overlap (`crates/sync-core/src/landed.rs`; the pairing by key and by patch id is
    `crates/git-ops/src/landed_pairing.rs`):

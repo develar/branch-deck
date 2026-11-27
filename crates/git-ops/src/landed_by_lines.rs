@@ -14,8 +14,15 @@
 //!   can never cancel out of a sum
 //! - one `diff-tree -p -U0` of them all, then the search in memory: the smallest sets first, at most
 //!   `MAX_SEARCHED_COMMITS` commits; two sets of the same size make no candidate
+//!
+//! After a clean replay the same search names the squash of the local commits the replay left empty
+//! (`squashes_of_gone`): no candidate then, the name of the baseline commit they landed as in the landed report. The
+//! targets are the upstream commits of their authors that nothing else names, the sets hold only those commits, and a
+//! set that another target's set shares a commit with names neither.
 
-use crate::landed_pairing::{CandidateBy, ChangedLines, KeyedCommit, LandedCandidate, LandedPairing, LandedReads, NetLines, PathSets, net_of, read_changed_lines, same_net};
+use crate::landed_pairing::{
+  CandidateBy, ChangedLines, KeyedCommit, LandedCandidate, LandedPairing, LandedReads, NetLines, PathSets, changed_path_sets, net_of, read_changed_lines, same_net,
+};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -65,7 +72,7 @@ pub(crate) fn with_candidates_by_changed_lines(
   // newest first as the upstream is read: the oldest upstream commit first
   let untaken = reads.upstream.iter().rev().filter(|commit| !taken.contains(commit.upstream.id.as_str())).map(Target::of);
   let targets: Vec<Target<'_>> = completed.chain(untaken).collect();
-  for (replaced, candidate) in sets_of_targets(git_executor, repo_path, targets, &pool, paths)? {
+  for (replaced, candidate) in sets_of_targets(git_executor, repo_path, targets, &pool, paths, Shared::ToTheFirst)? {
     match replaced {
       Some(index) => pairing.candidates[index] = candidate,
       None => pairing.candidates.push(candidate),
@@ -73,6 +80,70 @@ pub(crate) fn with_candidates_by_changed_lines(
   }
   pairing.candidates.sort_by_key(|candidate| pool.position.get(candidate.commit.as_str()).copied());
   Ok(pairing)
+}
+
+/// The baseline commit each of the `gone` local commits of `reads` landed as, by local commit: the one upstream commit of
+/// `reads` whose changed lines the smallest set of them sums to, by their author, that `named` does not hold (the baseline
+/// commits that a proof, a candidate or an identity of a local commit names). A set names its baseline commit only when no
+/// set of another one shares a commit with it: a change that the upstream made, reverted and made again names nothing.
+/// `paths` are the sets of paths that the check read (`UpdatePlan::landed_paths`); without them one `diff-tree --stdin
+/// --name-only` of the gone commits and the targets. Then one `diff-tree --stdin -p -U0` when the paths of a target are
+/// covered; no process without a target
+///
+/// # Errors
+/// Git failed
+pub fn squashes_of_gone(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  reads: &LandedReads,
+  gone: &[&str],
+  named: &HashSet<&str>,
+  paths: Option<&PathSets>,
+) -> Result<HashMap<String, String>> {
+  let gone_set: HashSet<&str> = gone.iter().copied().collect();
+  let authors: HashSet<&str> = reads
+    .local
+    .iter()
+    .filter(|commit| gone_set.contains(commit.id.as_str()))
+    .map(|commit| commit.author_email.as_str())
+    .collect();
+  // newest first as the upstream is read: the oldest upstream commit first
+  let targets: Vec<Target<'_>> = reads
+    .upstream
+    .iter()
+    .rev()
+    .filter(|commit| !named.contains(commit.upstream.id.as_str()) && authors.contains(commit.key.email.as_str()))
+    .map(Target::of)
+    .collect();
+  if targets.is_empty() {
+    return Ok(HashMap::new());
+  }
+  let read;
+  let paths = if let Some(paths) = paths {
+    paths
+  } else {
+    read = changed_path_sets(git_executor, repo_path, gone.iter().copied().chain(targets.iter().map(|target| target.upstream)))?;
+    &read
+  };
+  let free = reads.local.iter().map(|commit| commit.id.as_str()).filter(|commit| gone_set.contains(commit)).collect();
+  let pool = Pool::of(reads, free);
+  let found = sets_of_targets(git_executor, repo_path, targets, &pool, paths, Shared::ToNone)?;
+  Ok(
+    found
+      .iter()
+      .flat_map(|(_, squash)| squash.unit().map(|commit| (commit.to_string(), squash.upstream.clone())))
+      .collect(),
+  )
+}
+
+/// Whether the sets of two targets may share a commit
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Shared {
+  /// An earlier target takes the commits of its set: a later one searches without them
+  ToTheFirst,
+  /// Each target searches every commit of the pool, and a set that shares a commit with the set of another target is
+  /// none
+  ToNone,
 }
 
 impl<'a> Target<'a> {
@@ -113,7 +184,7 @@ impl<'a> Pool<'a> {
 }
 
 /// The one smallest set of `pool` of each of `targets`, in their order, as a candidate by changed lines with the position
-/// of the candidate by identity it completes: a commit of the set of an earlier target is in no later one. A set holds
+/// of the candidate by identity it completes; two sets share a commit as `shared` says. A set holds
 /// only commits of the author of its target that meet its paths, and a target whose paths they cannot cover has none.
 /// One `diff-tree --stdin -p -U0` of the targets and their commits, none without such a target
 fn sets_of_targets<'a>(
@@ -122,6 +193,7 @@ fn sets_of_targets<'a>(
   targets: Vec<Target<'a>>,
   pool: &Pool<'a>,
   paths: &PathSets,
+  shared: Shared,
 ) -> Result<Vec<(Option<usize>, LandedCandidate)>> {
   let eligible = |target: &Target<'_>| -> Vec<&'a str> {
     let Some(wanted) = paths.get(target.upstream) else {
@@ -160,18 +232,24 @@ fn sets_of_targets<'a>(
 
   let mut found: Vec<(Option<usize>, LandedCandidate)> = Vec::new();
   let mut used: HashSet<&str> = HashSet::new();
+  let mut shared_commits: HashSet<&str> = HashSet::new();
   for (target, commits) in &targets {
     let wanted = net_of(&changes, &[target.upstream]);
     if target.candidate.is_some() && same_net(&net_of(&changes, &target.forced), &wanted) {
       continue;
     }
-    let commits: Vec<&str> = commits.iter().copied().filter(|commit| !used.contains(commit)).collect();
+    let commits: Vec<&str> = commits.iter().copied().filter(|commit| shared == Shared::ToNone || !used.contains(commit)).collect();
     let Some(set) = smallest_set(&changes, (&wanted, target.upstream), (&target.forced, &commits), paths, &pool.position) else {
       continue;
     };
     let mut unit: Vec<&str> = target.forced.iter().copied().chain(set.iter().copied()).collect();
     unit.sort_by_key(|commit| pool.position.get(commit).copied());
-    used.extend(set);
+    for commit in set {
+      // a commit in two sets marks both
+      if !used.insert(commit) {
+        shared_commits.insert(commit);
+      }
+    }
     found.push((
       target.candidate,
       LandedCandidate {
@@ -181,6 +259,10 @@ fn sets_of_targets<'a>(
         by: CandidateBy::ChangedLines,
       },
     ));
+  }
+  if !shared_commits.is_empty() {
+    debug!(shared = shared_commits.len(), "sets of two baseline commits share a commit: neither names it");
+    found.retain(|(_, candidate)| candidate.unit().all(|commit| !shared_commits.contains(commit)));
   }
   debug!(found = found.len(), targets = targets.len(), "candidates by changed lines");
   Ok(found)

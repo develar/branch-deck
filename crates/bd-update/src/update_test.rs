@@ -109,6 +109,34 @@ fn a_commit_that_the_replay_leaves_without_a_change_is_dropped_as_empty() {
   );
 }
 
+/// `brd update` of `clone` that applies and replays no local commit, as it drops each of `dropped`: its output
+fn update_replaying_nothing(clone: &TestRepo, dropped: &Value) -> Value {
+  let (exit_code, output) = run_in(clone, &["--full-ids", "update"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((&output["replayed"], &output["dropped"]), (&json!(0), dropped), "{output}");
+  output
+}
+
+/// Two local commits of a pull request that the baseline squashed into one commit under another key: their replay
+/// leaves them empty, so `dropped` lists them with the proof `empty`, and their changed lines sum to the squash, which
+/// both name as their `upstream`, as `landed` does
+#[test_log::test]
+fn a_commit_that_its_replay_leaves_empty_names_the_squash_it_landed_as() {
+  let (upstream, clone) = clone_of_upstream();
+  let login = clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  let logout = clone.create_commit("(auth) Add logout", "logout.txt", "logout\n");
+  let squash = upstream.create_commit_with_files("Auth (#12)", &[("login.txt", "login\n"), ("logout.txt", "logout\n")]);
+  let output = update_replaying_nothing(
+    &clone,
+    &json!([
+      { "commit": login, "subject": "Add login", "upstream": squash, "proof": "empty" },
+      { "commit": logout, "subject": "Add logout", "upstream": squash, "proof": "empty" },
+    ]),
+  );
+  assert_eq!(output["landed"][0]["commits"][1]["upstream"], json!(squash), "{output}");
+  assert_eq!(clone.head(), squash);
+}
+
 /// The local `(auth) Add note` landed as `subject` at `time`, then the upstream changed around it: the clean merge of the
 /// local commit would add its lines a second time, so the update leaves it out by its patch id before the replay, and it
 /// landed as that upstream commit (branch-deck#153)
@@ -125,16 +153,7 @@ fn assert_note_dropped_by_its_patch_id(subject: &str, time: i64) {
   let (exit_code, output) = run_in(&clone, &["--full-ids", "update", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["landed"][0]["commits"][0]["upstream"], json!(landed), "{output}");
-  let (exit_code, output) = run_in(&clone, &["--full-ids", "update"]);
-  assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(
-    (&output["replayed"], &output["dropped"]),
-    (
-      &json!(0),
-      &json!([{ "commit": local, "subject": "(auth) Add note", "upstream": landed, "proof": "patch_id" }])
-    ),
-    "{output}"
-  );
+  let output = update_replaying_nothing(&clone, &json!([{ "commit": local, "subject": "(auth) Add note", "upstream": landed, "proof": "patch_id" }]));
   assert_eq!(output["landed"][0]["commits"][0]["upstream"], json!(landed), "{output}");
   assert_eq!(read(&clone, "f.txt"), upstream_file);
 }
