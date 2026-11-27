@@ -679,7 +679,7 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
         if !(args.status || args.abort || args.resume || args.dry_run) {
           refuse_update_in_lease(&context)?;
         }
-        update(&context, args)
+        update(&context, environment, args)
       };
       print_summary(out, context().and_then(run), UpdateCommandOutput::exit_code)
     }

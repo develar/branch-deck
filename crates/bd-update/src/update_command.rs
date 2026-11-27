@@ -8,8 +8,9 @@
 //! operations registry of the repository before the fetch (`Intent::UpdateProject`, `bd_core::operation_record`)
 
 use bd_core::bd_command::shell_word;
-use bd_core::context::RepoContext;
+use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CONFLICT_EXIT, CliError, ErrorExtra, ErrorRenamePair, ProcessKind, ProcessOutput};
+use bd_core::merged_pull_requests::AskedMergedPullRequests;
 use bd_core::operation_record::recorded_unless;
 use bd_core::output::{ResolvedByWords, ResolvedFileEntry, SchemaVersion, ShortIds};
 use bd_core::progress::CommandSteps;
@@ -684,7 +685,9 @@ pub struct UpdateConflictCommit {
   pub files: Vec<String>,
 }
 
-pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutput, CliError> {
+/// `brd update`: its check after a conflict asks GitHub for the merged pull requests once (`AskedMergedPullRequests`,
+/// with the services of `environment`), before the repository lock
+pub fn update(context: &RepoContext, environment: &Environment, args: &UpdateArgs) -> Result<UpdateCommandOutput, CliError> {
   let fetch = !(args.no_fetch || args.resume || args.abort || args.status);
   // a dry run and a status read only: no record
   let reads_only = args.dry_run || (args.status && !args.materialize);
@@ -696,12 +699,12 @@ pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandO
       epoch: None,
       keep: Vec::new(),
     },
-    || updated(context, args),
+    || updated(context, environment, args),
   )
 }
 
 /// `update`, recorded unless it reads only
-fn updated(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutput, CliError> {
+fn updated(context: &RepoContext, environment: &Environment, args: &UpdateArgs) -> Result<UpdateCommandOutput, CliError> {
   if args.force && !args.materialize && !args.abort {
     return Err(CliError::new(
       ErrorCode::InvalidArguments,
@@ -750,14 +753,18 @@ fn updated(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutp
     let outcome = continue_resolve(&context.git, &context.repository, &options, context.lock_timeout).map_err(|error| update_core_error(context, error))?;
     return session_output(context, outcome, args.dry_run, &bd).map(|output| UpdateCommandOutput::Update(Box::new(output)));
   }
+  // asked of GitHub only by a check that conflicts, once
+  let merged = AskedMergedPullRequests::new(context, environment);
   if args.dry_run {
     let baseline = detect_baseline_branch(&context.git, &context.repository)?;
-    let preview = preview_update(&context.git, &context.repository, &baseline).map_err(core_error)?.ok_or_else(|| {
-      CliError::new(
-        ErrorCode::NoBaseline,
-        format!("The baseline {baseline} is a local branch: there is no upstream to update from"),
-      )
-    })?;
+    let preview = preview_update(&context.git, &context.repository, &baseline, Some(&merged))
+      .map_err(core_error)?
+      .ok_or_else(|| {
+        CliError::new(
+          ErrorCode::NoBaseline,
+          format!("The baseline {baseline} is a local branch: there is no upstream to update from"),
+        )
+      })?;
     return output(context, &preview.check, None, (preview.landing, &[]), true).map(|output| UpdateCommandOutput::Update(Box::new(output)));
   }
 
@@ -767,7 +774,7 @@ fn updated(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutp
     onto: None,
     lease: &context.lease,
     keep: &[],
-    merged: None,
+    merged: Some(&merged),
   };
   let output = update_or_resolve(context, options, args.dir.as_deref())?;
   Ok(UpdateCommandOutput::Update(Box::new(output)))

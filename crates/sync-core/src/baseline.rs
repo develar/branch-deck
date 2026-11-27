@@ -201,16 +201,18 @@ pub struct BaselineCheck {
 /// lost bindings of its replay (`check_baseline_update_checking`).
 /// `None` for a local baseline: there is nothing to update from.
 pub fn check_baseline_update(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<Option<BaselineCheck>> {
-  check_baseline_update_checking(git_executor, repo_path, baseline_branch, None)
+  check_baseline_update_checking(git_executor, repo_path, baseline_branch, None, None)
 }
 
-/// `check_baseline_update` with the lost-binding rule (`brd update --dry-run`): a clean rebase whose replay loses a
-/// binding is a conflict, as the update answers it
+/// `check_baseline_update` with the lost-binding rule and the merged pull requests (`brd update --dry-run`): a clean
+/// rebase whose replay loses a binding is a conflict, and a conflict pairs with the merged pull requests, as the update
+/// answers it
 pub fn check_baseline_update_checking(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   baseline_branch: &str,
   lost_bindings: Option<&'static dyn LostBindingRule>,
+  merged: Option<&dyn MergedPullRequests>,
 ) -> Result<Option<BaselineCheck>> {
   let config = ConfigSnapshot::read(git_executor, repo_path)?;
   let grouping = read_grouping_inputs(git_executor, repo_path)?;
@@ -219,7 +221,7 @@ pub fn check_baseline_update_checking(
     grouping: &grouping,
     resolve: config.resolve_mode()?,
     lost_bindings,
-    merged: None,
+    merged,
   };
   check_baseline_update_with(&git_executor, repo_path, baseline_branch, inputs)
 }

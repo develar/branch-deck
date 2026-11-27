@@ -51,7 +51,7 @@ use sync_core::sync::{SyncOptions, sync_branches};
 use test_utils::fake_executable::fake_executable;
 use test_utils::git_test_utils::{TestRepo, TestWorktree, append_config};
 use test_utils::hermetic_git::HermeticGit;
-use test_utils::process_budget::{FIRST_SYNC, assert_signed_commits, with_added_processes, with_process_deltas};
+use test_utils::process_budget::{FIRST_SYNC, NOREPLY_SQUASH_UPDATE, assert_signed_commits, with_added_processes, with_process_deltas};
 
 /// The context `brd --prefix test-user` resolves in `repo`; its executor counts every process of the command
 fn context(repo: &TestRepo) -> RepoContext {
@@ -2780,4 +2780,34 @@ fn a_review_after_landing() {
   let output = bd_remote::shown_command::close_review(&close, &args, &environment).unwrap();
   assert!(output.closed, "{output:?}");
   assert_after_sync(&close, &synced, &[("ls-remote", 1), ("push", 1)]);
+}
+
+/// `brd update` of branch-deck#284 after its fetch: a commit and its fixup that GitHub squashed under the noreply address
+/// of the user. The check conflicts and asks GitHub once, before the lock (one GraphQL search, no process for the fixed
+/// token): the ask reads the GitHub repository of the branches from the config (`branchdeck.githubRepository`, one
+/// `config` of the snapshot), then the pairing by the merged pull request reads what update-core's
+/// `a_conflicting_update_of_a_pull_request_squashed_under_a_noreply_address_reads_its_merge_commit_once` pins (one `log`
+/// of the merge commit's author, one `rev-list` of the head), and the update applies with both commits landed as the
+/// squash. A clean update asks nothing (`a_clean_update_asks_no_merged_pull_requests` of update-core)
+#[test]
+fn a_conflicting_brd_update_of_a_pull_request_squashed_under_a_noreply_address_asks_github_once() {
+  let (upstream, clone, squash) = crate::fixture_test::squashed_under_noreply("a\nB2\nc\n");
+  let (_server, fake, environment) = crate::fixture_test::github_that_merged(&clone, &clone.head(), &squash);
+  let options = RepoOptions {
+    repo: Some(clone.path()),
+    prefix: Some(PREFIX),
+    full_ids: true,
+    no_cache: false,
+  };
+  let context = RepoContext::resolve(&environment, &options).unwrap();
+  let args = bd_update::update_command::UpdateArgs {
+    no_fetch: true,
+    ..bd_update::update_command::UpdateArgs::default()
+  };
+  let output = bd_update::update_command::update(&context, &environment, &args).unwrap();
+  assert!(matches!(output, bd_update::update_command::UpdateCommandOutput::Update(_)), "{output:?}");
+  assert_eq!(clone.head(), upstream.head());
+  assert_eq!(fake.requests_to("POST", "/graphql").len(), 1);
+  // the config of the ask; brd reads one more object batch than the core
+  assert_processes(&context, &with_process_deltas(NOREPLY_SQUASH_UPDATE, &[("cat-file", 1), ("config", 1)]));
 }

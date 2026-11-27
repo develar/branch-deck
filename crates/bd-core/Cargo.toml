@@ -40,8 +40,11 @@ tracing.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+# the fake GitHub the merged pull requests of `brd update` are asked of
+github = { path = "../github", features = ["fake"] }
 pretty_assertions.workspace = true
 tempfile.workspace = true
+test-utils = { path = "../test-utils" }
 
 [lints]
 workspace = true

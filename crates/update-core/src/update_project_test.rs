@@ -399,7 +399,7 @@ fn the_check_of_a_sync_finds_the_lost_bindings_of_the_replay() {
   git(&clone, &["fetch", "origin"]);
   // without the rule (a test of sync-core): the replay is clean
   assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::Rebase });
-  let check = preview_update(clone.git_executor(), path(&clone), "origin/master").unwrap().unwrap().check;
+  let check = preview_update(clone.git_executor(), path(&clone), "origin/master", None).unwrap().unwrap().check;
   let UpdateState::Conflict { first_conflict } = &check.state else {
     panic!("not a conflict: {check:?}");
   };
@@ -830,7 +830,7 @@ fn e2e_templates_have_the_expected_update_states() {
   // the check of a sync with the rule finds the lost bindings, and so does the update, used by the upstream's one commit
   // of the file
   let (repo, _) = check("update_lost_bindings", templates::update_lost_bindings());
-  let state = preview_update(&git_executor, &repo, "origin/master").unwrap().unwrap().check.state;
+  let state = preview_update(&git_executor, &repo, "origin/master", None).unwrap().unwrap().check.state;
   assert!(
     matches!(&state, UpdateState::Conflict { first_conflict } if first_conflict.lost_bindings.len() == 2),
     "{state:?}"

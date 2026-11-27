@@ -76,6 +76,26 @@ pub fn assert_signed_commits(repo: &TestRepo, base: &str, tip: &str) {
   assert_eq!(statuses.trim(), vec!["G"; commits.lines().count()].join("\n"));
 }
 
+/// The processes of Update Project after its fetch of branch-deck#284: a commit and its fixup that GitHub squashed under
+/// the noreply address of the user, paired by the merged pull request after the conflict (update-core's
+/// `a_conflicting_update_of_a_pull_request_squashed_under_a_noreply_address_reads_its_merge_commit_once`, and `brd update`
+/// with the ask of GitHub in bd-cli)
+pub const NOREPLY_SQUASH_UPDATE: &[(&str, u32)] = &[
+  ("cat-file", 1),
+  ("config", 2),
+  ("diff-tree", 1),
+  ("for-each-ref", 1),
+  ("log", 5),
+  ("merge-base", 2),
+  ("merge-tree", 1),
+  ("remote", 1),
+  ("replay", 1),
+  ("rev-list", 5),
+  ("rev-parse", 6),
+  ("symbolic-ref", 4),
+  ("update-ref", 1),
+];
+
 /// The processes of a first sync with two virtual branches
 pub const FIRST_SYNC: &[(&str, u32)] = &[
   ("cat-file", 1),

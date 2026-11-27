@@ -13,7 +13,7 @@ use std::fs;
 use std::sync::atomic::{AtomicU32, Ordering};
 use sync_core::lease_state::LeaseGuard;
 use test_utils::git_test_utils::TestRepo;
-use test_utils::process_budget::{assert_processes, assert_signed_commits, counting, processes, with_added_processes};
+use test_utils::process_budget::{NOREPLY_SQUASH_UPDATE, assert_processes, assert_signed_commits, counting, processes, with_added_processes};
 
 /// The processes of Update Project after its fetch (`an_update`, `an_update_after_its_fetch`): one `update-index`, the
 /// refresh of the user's index that the dry run of the local changes copies and the move takes as it is. The lost
@@ -364,24 +364,7 @@ fn a_conflicting_update_of_a_pull_request_squashed_under_a_noreply_address_reads
   assert!(result.applied.is_some(), "{result:?}");
   assert_eq!(clone.head(), upstream.head());
   assert_eq!(counted.asked.load(Ordering::Relaxed), 1);
-  assert_processes(
-    &git,
-    &[
-      ("cat-file", 1),
-      ("config", 2),
-      ("diff-tree", 1),
-      ("for-each-ref", 1),
-      ("log", 5),
-      ("merge-base", 2),
-      ("merge-tree", 1),
-      ("remote", 1),
-      ("replay", 1),
-      ("rev-list", 5),
-      ("rev-parse", 6),
-      ("symbolic-ref", 4),
-      ("update-ref", 1),
-    ],
-  );
+  assert_processes(&git, NOREPLY_SQUASH_UPDATE);
 }
 
 /// Update Project of the incident (`TestRepo::upstream_and_clone_losing_bindings`) after its fetch: the check of
@@ -539,7 +522,7 @@ fn the_check_of_a_sync_whose_upstream_changes_no_local_file_asks_no_rule() {
   // a check of another state: the preview cache keeps one per repository
   let other = fetched_update();
   let with = counting();
-  crate::update_project::preview_update(&with, path(&other.clone), "origin/master").unwrap().unwrap();
+  crate::update_project::preview_update(&with, path(&other.clone), "origin/master", None).unwrap().unwrap();
   assert_eq!(processes(&with), processes(&without));
 }
 
@@ -555,7 +538,7 @@ fn the_check_of_a_sync_reads_the_lost_bindings_once_per_state() {
   let local_file = fs::File::options().write(true).open(clone.path().join("src/Launch.kt")).unwrap();
   local_file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(5)).unwrap();
   let git = counting();
-  crate::update_project::preview_update(&git, path(&clone), "origin/master").unwrap().unwrap();
+  crate::update_project::preview_update(&git, path(&clone), "origin/master", None).unwrap().unwrap();
   assert_processes(
     &git,
     &[
@@ -575,7 +558,7 @@ fn the_check_of_a_sync_reads_the_lost_bindings_once_per_state() {
     ],
   );
   let git = counting();
-  let check = crate::update_project::preview_update(&git, path(&clone), "origin/master").unwrap().unwrap().check;
+  let check = crate::update_project::preview_update(&git, path(&clone), "origin/master", None).unwrap().unwrap().check;
   assert!(matches!(check.state, UpdateState::Conflict { .. }), "{check:?}");
   assert_processes(
     &git,

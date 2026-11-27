@@ -570,7 +570,7 @@ pub fn parse_pull_request_maps(json: &[u8], branch_prefix: &str, owner: &str) ->
 
 /// Whether `gh` is a pull request of a branch pushed to `owner`'s repository: a fork's branch of the same name is not
 /// ours
-fn of_owner(gh: &GhPullRequest, owner: &str) -> bool {
+pub(crate) fn of_owner(gh: &GhPullRequest, owner: &str) -> bool {
   let same_owner = gh
     .head_repository_owner
     .as_ref()

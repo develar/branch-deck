@@ -303,9 +303,14 @@ pub fn sync_statuses(output: &Value) -> Vec<(&Value, &Value)> {
 
 /// Run `bd` in `repo` with `--prefix test-user`
 pub fn run_in(repo: &TestRepo, args: &[&str]) -> (i32, Value) {
+  run_prefixed(&environment(repo.path()), args)
+}
+
+/// Run `bd` of `environment` with `--prefix test-user`
+pub fn run_prefixed(environment: &Environment, args: &[&str]) -> (i32, Value) {
   let mut all_args = vec!["--prefix", PREFIX];
   all_args.extend_from_slice(args);
-  run_json(&environment(repo.path()), &all_args)
+  run_json(environment, &all_args)
 }
 
 /// Runs `during` while an agent's `brd sync` of `repo` is held in its first merge, asserts the sync is still held after
@@ -383,10 +388,8 @@ impl LockSpanGit {
 
   /// Run `bd` with `--prefix test-user`; the log starts empty
   pub fn run(&self, args: &[&str]) -> (i32, Value) {
-    let mut all = vec!["--prefix", PREFIX];
-    all.extend_from_slice(args);
     let _ = std::fs::remove_file(self.directory.path().join("log"));
-    run_json(&self.environment, &all)
+    run_prefixed(&self.environment, args)
   }
 
   /// `(locked, arguments)` of every git command of the last run, in the order they started
@@ -829,4 +832,75 @@ pub fn make_lease_idle(state_file: &Path, slot: &str) {
   if log.exists() {
     std::fs::File::options().write(true).open(&log).unwrap().set_modified(long_ago).unwrap();
   }
+}
+
+/// The address GitHub gives a user who keeps theirs private: the squash of their pull request is of it
+pub const NOREPLY: &str = "1+test@users.noreply.github.com";
+
+/// An upstream with `f.txt` and its clone with `(feature) Change b` to `B1` and its fixup to `B2`, which GitHub
+/// squashed upstream into `Change b (#1)` of `content` under `NOREPLY`, fetched: the upstream, the clone and the squash.
+/// No identity and no author of the local commits names the squash
+pub fn squashed_under_noreply(content: &str) -> (TestRepo, TestRepo, String) {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("f.txt", "a\nb\nc\n")]);
+  clone.create_commit_with_timestamp("(feature) Change b", "f.txt", "a\nB1\nc\n", Some(1_700_000_100));
+  clone.create_commit_with_timestamp("(feature) fixup! Change b", "f.txt", "a\nB2\nc\n", Some(1_700_000_200));
+  std::fs::write(upstream.path().join("f.txt"), content).unwrap();
+  git(&upstream, &["add", "f.txt"]);
+  upstream
+    .git_executor()
+    .cmd(&["commit", "-q", "-m", "Change b (#1)"], upstream.path().to_str().unwrap())
+    .env(&[("GIT_AUTHOR_NAME", "Test User"), ("GIT_AUTHOR_EMAIL", NOREPLY)])
+    .text()
+    .unwrap();
+  git(&clone, &["fetch", "-q", "origin"]);
+  let squash = upstream.head();
+  (upstream, clone, squash)
+}
+
+/// The GitHub of `repo` (`acme/monorepo`, the token `t`, the user `me`), which merged its pull request #1 of the head
+/// `head` as `merge_commit` under `NOREPLY`, served on a runtime of its own, and the environment of a `brd` that asks it
+pub fn github_that_merged(repo: &TestRepo, head: &str, merge_commit: &str) -> (tokio::runtime::Runtime, std::sync::Arc<github::fake_github::FakeGitHub>, Environment) {
+  use github::fake_github::FakeGitHub;
+  use github::fake_repository::{FakeGitHubRepository, FakePull, RepositoryState};
+  append_config(repo.path(), &[("branchdeck.githubRepository", "acme/monorepo")]);
+  let pull_request = serde_json::from_value(json!({
+    "number": 1, "title": "Change b", "url": "https://github.com/acme/monorepo/pull/1", "state": "merged", "isDraft": false,
+    "reviewDecision": null, "headRefName": format!("{PREFIX}/virtual/feature"), "headRefOid": head, "checks": null,
+    "updatedAt": 1_700_000_900, "reviewers": [], "author": "me"
+  }))
+  .unwrap();
+  let merged = domain_types::pull_request::MergedPullRequest {
+    number: 1,
+    head_ref_name: format!("{PREFIX}/virtual/feature"),
+    head_ref_oid: head.to_string(),
+    merge_commit: merge_commit.to_string(),
+    merge_author_email: Some(NOREPLY.to_string()),
+    merged_at: 1_700_000_900,
+  };
+  let repository = std::sync::Arc::new(FakeGitHubRepository::default());
+  repository.set(RepositoryState {
+    owner: "acme".to_owned(),
+    name: "monorepo".to_owned(),
+    token: "t".to_owned(),
+    viewer: "me".to_owned(),
+    pulls: vec![FakePull {
+      pull_request,
+      body: String::new(),
+      comments: Vec::new(),
+      assignees: Vec::new(),
+      reviews: Vec::new(),
+      created_at: 1_700_000_300,
+    }],
+    merges: [(1, merged)].into(),
+    ..RepositoryState::default()
+  });
+  let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+  let fake = std::sync::Arc::new(FakeGitHub::with_repository(repository));
+  let url = runtime.block_on(github::fake_github::serve(std::sync::Arc::clone(&fake)));
+  let environment = Environment {
+    github_api_url: url,
+    github_tokens: github::token::TokenSources::fixed("t"),
+    ..environment(repo.path())
+  };
+  (runtime, fake, environment)
 }

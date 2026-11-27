@@ -18,12 +18,14 @@
 //!   of an operation of the remote once its plan holds, of a rewrite, an update and a pick before any lock
 //! - `suggest_plan`: the plan of `brd suggest`, read by `brd check --plan` and `brd pick`
 //! - `progress`: the steps of a long command on stderr and in its answer, and its wait for the repository lock
+//! - `merged_pull_requests`: the merged pull requests `brd update` asks of GitHub once, after a conflict
 
 pub mod bd_command;
 pub mod branch_view;
 pub mod check_summary;
 pub mod context;
 pub mod error;
+pub mod merged_pull_requests;
 pub mod next_step_summary;
 pub mod operation_record;
 pub mod output;

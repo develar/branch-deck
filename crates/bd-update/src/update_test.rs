@@ -2,7 +2,7 @@ use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
 use bd_cli::fixture_test::{LockSpanGit, subcommand};
 use bd_cli::fixture_test::{
-  PREFIX, TestChild, assert_error, assert_refused_during, environment, git, hold_the_lock, print_child_answer, run_in, run_json, start_cherry_pick, write,
+  PREFIX, TestChild, assert_error, assert_refused_during, environment, git, hold_the_lock, print_child_answer, run_in, run_json, squashed_under_noreply, start_cherry_pick, write,
 };
 use git_ops::lease_slot::STATE_DIR;
 use pretty_assertions::assert_eq;
@@ -749,4 +749,15 @@ fn an_update_with_autocrlf_checks_out_crlf_and_leaves_a_clean_status() {
   let (exit_code, undo) = run_in(&clone, &["undo", output["undo_token"].as_str().unwrap()]);
   assert_eq!(exit_code, 0, "{undo}");
   assert_eq!((read(&clone, "shared.txt"), status(&clone)), ("one\r\ntwo\r\nthree\r\n".to_string(), String::new()));
+}
+
+/// Without a GitHub token `brd update` pairs as before: the squash of a pull request under the noreply address of the
+/// user is no candidate, and the update stops on the round of its commit without `landed_as`
+#[test_log::test]
+fn without_sign_in_brd_update_stops_on_its_round_as_before() {
+  let (_upstream, clone, _) = squashed_under_noreply("a\nB2\nc\n");
+  test_utils::git_test_utils::append_config(clone.path(), &[("branchdeck.githubRepository", "acme/monorepo")]);
+  let (exit_code, round) = run_in(&clone, &["update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  assert_eq!(round["session"]["commit"].get("landed_as"), None, "{round}");
 }

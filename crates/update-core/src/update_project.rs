@@ -545,9 +545,10 @@ pub(crate) fn record_landed_update(
 }
 
 /// The check of `brd update --dry-run`: the check inside every sync (`check_baseline_update_checking`), with the lost
-/// bindings of its replay, as the update answers them. `None` for a local baseline
-pub fn preview_update(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<Option<BaselineCheck>> {
-  check_baseline_update_checking(git_executor, repo_path, baseline_branch, Some(&REPLAY_RULE))
+/// bindings of its replay and, after a conflict, the merged pull requests `merged`, as the update answers them. `None`
+/// for a local baseline
+pub fn preview_update(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str, merged: Option<&dyn MergedPullRequests>) -> Result<Option<BaselineCheck>> {
+  check_baseline_update_checking(git_executor, repo_path, baseline_branch, Some(&REPLAY_RULE), merged)
 }
 
 /// The undo token of an applied update: `update:<previous head>..<new head>`, with full ids

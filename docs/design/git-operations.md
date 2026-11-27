@@ -1746,8 +1746,12 @@ Details:
   Last, the candidates by pull request (`landed_by_pull_request`), for a squash with an edit of the review of its own or
   of the noreply address of the user, whose lines no set sums to or whose author the pairing never reads. Only when a
   local commit is left that nothing took, the caller's merged pull requests are asked once, since the oldest author time
-  of those (`MergedPullRequests::merged_since`, `LandedLookup::WithPullRequests`; the app the listing of its session,
-  `brd update` one search of GitHub; no IO in the check, and before the lock). A pull request counts by its merge commit
+  of those (`MergedPullRequests::merged_since`, `LandedLookup::WithPullRequests`; no IO in the check, and before the
+  lock): the app the listing of its session (the 50 most recently updated pull requests of the user), `brd update` and
+  its `--dry-run` one search of GitHub of the user's pull requests merged since a day before that time
+  (`bd_core::merged_pull_requests`, `remote_facts::merged_pull_requests`; once per command, none inside a runtime, whose
+  block on the runtime of the command would panic), so the two may find other pull requests; signed out or a failure
+  is no answer. A pull request counts by its merge commit
   (`mergeCommit`): nothing took it, no local commit is it, it is among the upstream commits the pairing read, else in one
   `log --no-merges --fixed-strings --author=<email> B..U` of the authors of the other merge commits, and no local commit
   has its key (a rebase merge, which the keys pair). Then one `rev-list --ignore-missing <heads> ^U` with the parents

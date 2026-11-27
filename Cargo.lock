@@ -685,6 +685,7 @@ dependencies = [
  "sync-core",
  "sync-utils",
  "tempfile",
+ "test-utils",
  "tokio",
  "tracing",
  "trial-check",

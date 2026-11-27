@@ -508,7 +508,11 @@ impl FakeGitHubRepository {
       return Some(FakeAnswer::ok(json!({"data": {"repository": null}, "errors": [{"type": "NOT_FOUND", "message": message}]})));
     }
     if query.contains("search(") {
-      let pulls: Vec<PullRequest> = state.pulls.iter().map(|pull| self.resolved(&pull.pull_request, state)).collect();
+      let mut pulls: Vec<PullRequest> = state.pulls.iter().map(|pull| self.resolved(&pull.pull_request, state)).collect();
+      // the search of `brd update` (`is:merged`): the merged ones only
+      if variables["q"].as_str().is_some_and(|search| search.split_whitespace().any(|term| term == "is:merged")) {
+        pulls.retain(|pull_request| pull_request.state == PullRequestState::Merged);
+      }
       let mut data = search_data(&state.owner, &state.viewer, pulls, &state.merges);
       if query.contains("shown: search(") {
         let shown: Vec<(PullRequest, String, u32)> = state

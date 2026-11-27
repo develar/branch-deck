@@ -7,6 +7,7 @@
 //!
 //! GitHub:
 //! - `pull_requests`: the pull request status of the virtual branches, from one GraphQL search
+//! - `merged_pull_requests`: the merged pull requests since the local commits, for `brd update`
 //! - `pull_request_create`: a new pull request of a virtual branch
 //! - `pull_request_text`: the title and the body of a new pull request of a virtual branch, from its commits
 //! - `stack_pull_request`: the title and the body of the pull request of the whole stack, from what the sync read
@@ -42,6 +43,7 @@
 pub mod branch_rules;
 pub mod cli_tool_releases;
 pub mod fact_sources;
+pub mod merged_pull_requests;
 pub mod patronus_command;
 pub mod patronus_review;
 pub mod pull_request_create;

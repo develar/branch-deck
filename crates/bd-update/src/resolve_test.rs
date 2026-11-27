@@ -1,4 +1,4 @@
-use bd_cli::fixture_test::{assert_error, bd_in, canonical, git, hold_the_lock, run_in, write};
+use bd_cli::fixture_test::{assert_error, bd_in, canonical, git, github_that_merged, hold_the_lock, run_in, run_prefixed, squashed_under_noreply, write};
 use git_ops::lease_slot::STATE_DIR;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -2211,5 +2211,47 @@ fn landed_of_a_candidate_by_changed_lines_whose_squash_was_rewritten_asks_the_us
     [(&json!(squash), &json!("landed")), (&json!(squash), &json!("landed"))],
     "{done}"
   );
+  assert_eq!(clone.head(), upstream.head());
+}
+
+/// branch-deck#284: GitHub squashed the pull request with an edit of the review of the squashed line, under the noreply
+/// address of the user. After the conflict `brd update` asks GitHub once: the round of each commit names the merge commit
+/// of the pull request (`by: pull_request`), shows the edit in `upstream_only` and asks the user (the upstream lacks the
+/// change as it is); `--landed` refuses without `--user` and drops with it, the fixup in its own round
+#[test_log::test]
+fn the_round_of_a_pull_request_squashed_with_a_review_edit_shows_the_edit_and_asks_the_user() {
+  let (upstream, clone, squash) = squashed_under_noreply("a\nB2 reviewed\nc\n");
+  let (_server, fake, environment) = github_that_merged(&clone, &clone.head(), &squash);
+  let run = |args: &[&str]| run_prefixed(&environment, &[&["--full-ids"][..], args].concat());
+  let next = |output: &Value, extra: &[&str]| {
+    let next = output["session"]["next"].as_str().unwrap_or_else(|| panic!("{output}"));
+    let mut args: Vec<&str> = next.split(' ').skip(1).collect();
+    args.extend_from_slice(extra);
+    run(&args)
+  };
+  let (exit_code, round) = run(&["update"]);
+  assert_eq!(exit_code, 1, "{round}");
+  let landed_as = &round["session"]["commit"]["landed_as"];
+  assert_eq!(
+    (&landed_as["commit"], &landed_as["by"], &landed_as["pull_request"], &landed_as["upstream_only"]),
+    (&json!(squash), &json!("pull_request"), &json!(1), &json!([{ "path": "f.txt", "lines": ["+B2 reviewed"] }])),
+    "{round}"
+  );
+  assert_eq!(round["ask_user"], json!(true), "{round}");
+  assert_eq!(fake.requests_to("POST", "/graphql").len(), 1, "asked once");
+
+  let (exit_code, output) = next(&round, &[]);
+  assert_error(&output, exit_code, (2, "landed_differs"));
+  let (mut exit_code, mut output) = next(&round, &["--user"]);
+  for _ in 0..2 {
+    if exit_code != 1 {
+      break;
+    }
+    assert_eq!(output["session"]["commit"]["landed_as"]["by"], json!("pull_request"), "{output}");
+    (exit_code, output) = next(&output, &["--user"]);
+  }
+  assert_eq!(exit_code, 0, "{output}");
+  let dropped: Vec<(&Value, &Value)> = output["dropped"].as_array().unwrap().iter().map(|drop| (&drop["upstream"], &drop["proof"])).collect();
+  assert_eq!(dropped, [(&json!(squash), &json!("landed")), (&json!(squash), &json!("landed"))], "{output}");
   assert_eq!(clone.head(), upstream.head());
 }
