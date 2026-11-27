@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.30.0](https://github.com/develar/branch-deck/compare/v1.29.0...v1.30.0) (2026-11-27)
+
+
+### Features
+
+* **air:** Start in Air opens the New Session tab of Air with the prompt, and the dialog is gone ([7c8d0b8](https://github.com/develar/branch-deck/commit/7c8d0b8413ed4aa263e02775b5629d0d3232d160))
+* **landed:** a pull request GitHub merged is a candidate of the commits it pushed, by its merge commit, after a conflict ([54ccc1a](https://github.com/develar/branch-deck/commit/54ccc1a562c63c77e40da6300ebe3d5d9dedda2b)), closes [#284](https://github.com/develar/branch-deck/issues/284)
+* **update:** brd update asks GitHub for the merged pull requests once, only after a conflict ([f79b691](https://github.com/develar/branch-deck/commit/f79b6919707ed826ab917d7ae283b62b613f1752)), closes [#284](https://github.com/develar/branch-deck/issues/284)
+
+
+### Bug Fixes
+
+* **air:** the corpus copy of Air is the one of its trimmed local apps, and a refused draft is worded by the codes Air answers now ([17cbcfc](https://github.com/develar/branch-deck/commit/17cbcfc9f6fe251338a433d114ec91d85680cad7))
+* **bd:** a command brd prints carries the --prefix of its command line, so run as printed it acts on the same branches ([6e048e9](https://github.com/develar/branch-deck/commit/6e048e901bb8cad8bb4b0433bce92719e905262b))
+* **shown:** the brd output of a shown review says what was done: the close of an open one names the branches it deleted, a reviewer recorded in a draft is in reviewers ([0917554](https://github.com/develar/branch-deck/commit/09175543dc22eda6b143ef5dda0fbbec5c4592a0))
+* **update:** the test of the round of a pull request squashed with a review edit runs `next` as brd prints it, with its --prefix ([b0bbe0c](https://github.com/develar/branch-deck/commit/b0bbe0c0a30e3873769105b858554b0a54819d96)), closes [#284](https://github.com/develar/branch-deck/issues/284)
+
+
+### Performance Improvements
+
+* **update:** brd update knows from the rev-parse of its directories that its worktree has no resolve session, without a cat-file ([5095cb4](https://github.com/develar/branch-deck/commit/5095cb406b6dcd4b91b5968cd9f55f5ac1de08e9))
+
 ## [1.29.0](https://github.com/develar/branch-deck/compare/v1.28.0...v1.29.0) (2026-11-27)
 
 
