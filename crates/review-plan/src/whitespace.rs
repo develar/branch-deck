@@ -22,7 +22,10 @@
 //!   repository says the place of the declaration has no meaning (`units::FreeOrder`), and reads it as a change of
 //!   behaviour elsewhere.
 //! - **Lines that moved to another file** are compared by the same content, read of each side alone (`code`, with its
-//!   grammar): a declaration removed from a file and added to another with the same code says so (`moved_across`).
+//!   grammar): a declaration removed from a file and added to another with the same code says so (`moved_across`); the
+//!   same but the modifiers of its reach says that too (`code_but_reach`). The `impl` blocks of Rust, which no summary
+//!   declares, are read of the tokens (`impls`): a member moves with its header, and the lines of one the commits
+//!   emptied go with its members.
 //!
 //! The tokens of a blob are read once per grammar for the whole plan (`TextTokens`), when first asked: by
 //! `whitespace_only` for a hunk that passed its check of blanks, and by the fingerprint of every unit of a source file
@@ -31,7 +34,7 @@
 //! where a move between files may name it (`moved_across`, "Cost").
 
 use crate::files::without_whitespace;
-use code_tokens::{Equality, Token, Tokens, content, equal_by_tokens, same_without_blanks, tokens};
+use code_tokens::{Equality, Token, TokenClass, Tokens, content, equal_by_tokens, same_without_blanks, tokens};
 use code_tokens::{Grammar, grammar_of};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -153,10 +156,98 @@ impl Sides<'_, '_> {
     run.iter().any(|token| !token.is_comment()).then(|| Code { grammar, content: content(run) })
   }
 
+  /// The code of `lines` as `code` reads it, but without the modifiers of visibility (`visibility_modifiers`): the same
+  /// for `fn helper` and `pub(crate) fn helper`, for `glob: String` and `pub(crate) glob: String`, and another for any
+  /// other change. The rest of the tree stays between the tokens (what closes after each), but what opens before the
+  /// first token of the code of each line: the node a modifier stands in opens there, before the modifier where it has
+  /// one and before the next token where it has none. `None` where `code` is, and for a grammar of no such modifiers
+  /// (TypeScript's `export` is no modifier of a declaration's reach but of its file, Starlark has none)
+  pub(crate) fn code_but_reach(&self, new_side: bool, lines: Range<u32>) -> Option<Code> {
+    let Self::Grammar { tokens, old, new } = self else { return None };
+    let (grammar, blob) = if new_side { (*new)? } else { (*old)? };
+    let words = visibility_words(grammar)?;
+    let (read, text) = (tokens.of(grammar, blob)?, tokens.texts.get(blob)?);
+    let run = read.in_lines(lines);
+    let dropped = visibility_modifiers(run, text, grammar, words);
+    let kept: Vec<&Token> = run.iter().enumerate().filter(|(index, _)| !dropped[*index]).map(|(_, token)| token).collect();
+    let code = |token: &&Token| !token.is_comment();
+    let (first, last) = (kept.iter().position(code)?, kept.iter().rposition(code)?);
+    let mut hash = LOOSE_SEED;
+    let mut line_started: Option<u32> = None;
+    for (index, token) in kept.iter().enumerate() {
+      hash = mix(mix(hash, token.kind), token.text);
+      let first_of_line = !token.is_comment() && line_started != Some(token.line);
+      if !token.is_comment() {
+        line_started = Some(token.line);
+      }
+      if index != first && !first_of_line {
+        hash = mix(hash, token.opens);
+      }
+      if index != last {
+        hash = mix(hash, token.closes);
+      }
+    }
+    Some(Code { grammar, content: hash })
+  }
+
+  /// The code of the line `line` (of the diffs) of the old side, or of the new one (`new_side`), where the line is whole
+  /// items of its own: its brackets close on it, and its code ends with `;` (a call of a macro at the top of a file,
+  /// `answer_metadata!(SearchAnswer, …);`). `None` for any other line, and as `code` is
+  pub(crate) fn item_line_code(&self, new_side: bool, line: u32) -> Option<Code> {
+    let Self::Grammar { tokens, old, new } = self else { return None };
+    let (grammar, blob) = if new_side { (*new)? } else { (*old)? };
+    let (read, text) = (tokens.of(grammar, blob)?, tokens.texts.get(blob)?);
+    let run = read.in_lines(line..line + 1);
+    // a token over several lines (a string, a block comment) makes the line no item of its own
+    if run.iter().any(|token| token.line != line || token.end_line != line) {
+      return None;
+    }
+    let mut depth = 0_i32;
+    let mut last = None;
+    for token in run.iter().filter(|token| !token.is_comment()) {
+      let word = token.text_in(text);
+      match word {
+        "(" | "[" | "{" => depth += 1,
+        ")" | "]" | "}" => depth -= 1,
+        _ => {}
+      }
+      if depth < 0 {
+        return None;
+      }
+      last = Some(word);
+    }
+    (depth == 0 && last == Some(";")).then(|| self.code(new_side, line..line + 1)).flatten()
+  }
+
+  /// The `impl` blocks of Rust of the old side, or of the new one (`new_side`), each with its header and its closing
+  /// brace, in the order of the text; none for another grammar and a side without tokens. Read of the tokens: the
+  /// summaries declare no `impl` (`code_symbols`, "impl blocks declare nothing themselves")
+  pub(crate) fn impls(&self, new_side: bool) -> Vec<ImplBlock> {
+    let Self::Grammar { tokens, old, new } = self else { return Vec::new() };
+    let Some((grammar, blob)) = (if new_side { *new } else { *old }) else {
+      return Vec::new();
+    };
+    if grammar != Grammar::Rust {
+      return Vec::new();
+    }
+    let (Some(read), Some(text)) = (tokens.of(grammar, blob), tokens.texts.get(blob)) else {
+      return Vec::new();
+    };
+    impl_blocks(read.all(), text)
+  }
+
   /// Whether the lines `lines` (of the diffs) of the new side hold no code: no token but comments. No without the
   /// tokens of both sides
   pub(crate) fn no_code(&self, lines: Range<u32>) -> bool {
     self.read().is_some_and(|(_, new_tokens)| new_tokens.in_lines(lines).iter().all(Token::is_comment))
+  }
+
+  /// Whether the lines `lines` (of the diffs) of the old side, or of the new one (`new_side`), hold no code: no token
+  /// but comments, or none. No for a side without tokens
+  pub(crate) fn no_code_on(&self, new_side: bool, lines: Range<u32>) -> bool {
+    let Self::Grammar { tokens, old, new } = self else { return false };
+    let Some((grammar, blob)) = (if new_side { *new } else { *old }) else { return false };
+    tokens.of(grammar, blob).is_some_and(|read| read.in_lines(lines).iter().all(Token::is_comment))
   }
 
   /// The text of the lines `lines` (of the diffs) of the old side, or of the new one (`new_side`), as a fingerprint
@@ -168,4 +259,160 @@ impl Sides<'_, '_> {
     let tokens = if new_side { &new } else { &old };
     Some(format!("{:016x}", content(tokens.in_lines(lines))))
   }
+}
+
+/// An `impl` block of Rust (`Sides::impls`): its header, from its first token (an attribute of it, `unsafe`) to its
+/// opening brace, and its closing brace, by the lines of the diffs (from 0)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ImplBlock {
+  /// The lines of the header, the end excluded: its last line holds the opening brace
+  pub(crate) header: (u32, u32),
+  /// The line of the closing brace
+  pub(crate) close: u32,
+  /// The content of the tokens of the header (`code_tokens::content`), comments aside: what a member of it moved with
+  pub(crate) code: u64,
+}
+
+impl ImplBlock {
+  /// Whether `lines` (of the diffs) stand inside its braces
+  pub(crate) const fn holds(&self, lines: &Range<u32>) -> bool {
+    self.header.1 <= lines.start + 1 && lines.end <= self.close + 1 && lines.start < lines.end
+  }
+}
+
+/// The impl blocks of `all`, the tokens of `text` (`Sides::impls`): each pair of braces whose opening one ends an item
+/// that is an `impl`, its attributes, `unsafe` and `default` before the keyword; a function that returns `impl Trait`
+/// is none
+fn impl_blocks(all: &[Token], text: &str) -> Vec<ImplBlock> {
+  let is = |token: &Token, word: &str| !token.is_comment() && token.text_in(text) == word;
+  let mut open: Vec<usize> = Vec::new();
+  let mut blocks: Vec<ImplBlock> = Vec::new();
+  for (index, token) in all.iter().enumerate() {
+    if is(token, "{") {
+      open.push(index);
+    } else if is(token, "}")
+      && let Some(opening) = open.pop()
+      && let Some(start) = impl_header_start(all, text, opening)
+    {
+      let code: Vec<Token> = all[start..=opening].iter().filter(|token| !token.is_comment()).copied().collect();
+      blocks.push(ImplBlock {
+        header: (all[start].line, all[opening].end_line + 1),
+        close: token.line,
+        code: content(&code),
+      });
+    }
+  }
+  blocks.sort_by_key(|block| block.header);
+  blocks
+}
+
+/// The first token of the item whose opening brace is `all[opening]` where that item is an `impl`: the item starts
+/// after the `;`, `{` or `}` before it outside brackets, its attributes (`#[…]`) and the words `unsafe` and `default`
+/// stand before `impl`
+fn impl_header_start(all: &[Token], text: &str, opening: usize) -> Option<usize> {
+  let word = |index: usize| all[index].text_in(text);
+  // the start of the item: after the token that ends the one before it, outside brackets
+  let mut depth = 0_i32;
+  let mut start = 0;
+  for index in (0..opening).rev() {
+    if all[index].is_comment() {
+      continue;
+    }
+    match word(index) {
+      ")" | "]" => depth += 1,
+      "(" | "[" => depth -= 1,
+      ";" | "{" | "}" if depth == 0 => {
+        start = index + 1;
+        break;
+      }
+      _ => {}
+    }
+  }
+  let code: Vec<usize> = (start..opening).filter(|&index| !all[index].is_comment()).collect();
+  let mut at = 0;
+  // the attributes of the item, `#[…]` and `#![…]`
+  while code.get(at).is_some_and(|&index| word(index) == "#") {
+    at += 1;
+    if code.get(at).is_some_and(|&index| word(index) == "!") {
+      at += 1;
+    }
+    let mut depth = 0_i32;
+    while let Some(&index) = code.get(at) {
+      at += 1;
+      match word(index) {
+        "[" => depth += 1,
+        "]" => {
+          depth -= 1;
+          if depth == 0 {
+            break;
+          }
+        }
+        _ => {}
+      }
+    }
+  }
+  while code.get(at).is_some_and(|&index| matches!(word(index), "unsafe" | "default")) {
+    at += 1;
+  }
+  let keyword = *code.get(at)?;
+  if word(keyword) != "impl" || all[keyword].class != TokenClass::Keyword {
+    return None;
+  }
+  // its first token: the first of its code, after the comments right above it, a doc comment of it
+  let mut first = code.first().copied().unwrap_or(keyword);
+  while first > start && all[first - 1].is_comment() && all[first - 1].end_line + 1 >= all[first].line {
+    first -= 1;
+  }
+  Some(first)
+}
+
+/// The words of the modifiers of the reach of a declaration in `grammar`; `None` for a grammar of none
+/// (`Sides::code_but_reach`)
+const fn visibility_words(grammar: Grammar) -> Option<&'static [&'static str]> {
+  match grammar {
+    Grammar::Rust => Some(&["pub"]),
+    Grammar::Kotlin | Grammar::KotlinScript => Some(&["public", "private", "protected", "internal"]),
+    Grammar::Java => Some(&["public", "private", "protected"]),
+    Grammar::CSharp => Some(&["public", "private", "protected", "internal", "file"]),
+    _ => None,
+  }
+}
+
+/// Per token of `run`, whether it is a modifier of a reach: a keyword of `words`, and in Rust the brackets after `pub`
+/// that hold `crate`, `self`, `super` or `in …` (`pub(crate)`, `pub(in a::b)`), never those of a tuple field
+/// (`pub (u8, u8)`)
+fn visibility_modifiers(run: &[Token], text: &str, grammar: Grammar, words: &[&str]) -> Vec<bool> {
+  let mut dropped = vec![false; run.len()];
+  let word = |index: usize| run.get(index).filter(|token| !token.is_comment()).map(|token| token.text_in(text));
+  let mut index = 0;
+  while index < run.len() {
+    let token = &run[index];
+    if token.class != TokenClass::Keyword || !words.contains(&token.text_in(text)) {
+      index += 1;
+      continue;
+    }
+    dropped[index] = true;
+    index += 1;
+    if grammar == Grammar::Rust && word(index) == Some("(") && matches!(word(index + 1), Some("crate" | "self" | "super" | "in")) {
+      while index < run.len() {
+        dropped[index] = true;
+        index += 1;
+        if word(index - 1) == Some(")") {
+          break;
+        }
+      }
+    }
+  }
+  dropped
+}
+
+/// The seed of `Sides::code_but_reach`
+const LOOSE_SEED: u64 = 0x2545_f491_4f6c_dd1d;
+
+/// Two hashes as one, in order (`MurmurHash3`'s finalizer over their mix)
+const fn mix(hash: u64, value: u64) -> u64 {
+  let mut mixed = (hash ^ value.rotate_left(29)).wrapping_mul(0xff51_afd7_ed55_8ccd);
+  mixed ^= mixed >> 33;
+  mixed = mixed.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+  mixed ^ (mixed >> 33)
 }

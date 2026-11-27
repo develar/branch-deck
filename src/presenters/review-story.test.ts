@@ -1032,15 +1032,18 @@ describe("the document of a review", () => {
       ).card?.status
     expect([declared("notProven"), declared("checking")]).toEqual(["Renamed, not proven", "Renamed, checking"])
     // a declaration moved whole between two files: where it came from, where it went, never "New" or "Removed"
-    const moved = (kind: "added" | "removed") => {
-      const place = { path: kind === "added" ? "src/a/Orders.kt" : "src/a/Report.kt", line: 9, unit: "other" }
+    const moved = (kind: "added" | "removed", visibility?: boolean) => {
+      const place = { path: kind === "added" ? "src/a/Orders.kt" : "src/a/Report.kt", line: 9, unit: "other", visibility }
       const of: ReviewUnit = { ...unit, kind: { kind }, ...(kind === "added" ? { movedFrom: place } : { movedTo: place }) }
       return mentionWords({ units: [of] })({ kind: "unit", unit: of.id, name: "allowed", path: "src/a/Manager.kt", side: "new", line: 6, step: 1 }, "allowed").card
     }
-    expect([moved("added"), moved("removed")].map(card => [card?.status, card?.tone])).toEqual([
+    expect([moved("added"), moved("removed"), moved("added", false)].map(card => [card?.status, card?.tone])).toEqual([
       ["Moved from Orders.kt", "secondary"],
       ["Moved to Report.kt", "secondary"],
+      ["Moved from Orders.kt", "secondary"],
     ])
+    // a move whose reach changed with it, as Rust decided
+    expect([moved("added", true), moved("removed", true)].map(card => card?.status)).toEqual(["Moved from Orders.kt, visibility changed", "Moved to Report.kt, visibility changed"])
     // read in its own step, the card names no step
     expect(
       mentionWords({ units: [fresh] }, 4)({ kind: "unit", unit: fresh.id, name: "read", path: "src/a/LayoutStore.kt", side: "new", line: 4, step: 4 }, "LayoutStore.read").card

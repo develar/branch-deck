@@ -469,6 +469,14 @@ describe("the declarations moved whole between two files in the story", () => {
     // no move Rust told of: new and removed
     expect(headingText([formatUnitHeading({ ...added, movedFrom: null })])).toBe("formatTotal — new")
     expect(headingText([formatUnitHeading({ ...removed, movedTo: null })])).toBe("formatTotal — removed")
+    // a move whose reach changed with it says so at both places; no `visibility`, or `false`, says nothing
+    const widened = (visibility?: boolean) => ({ ...place(ORDERS, 9, removed.id), visibility })
+    expect(headingText([formatUnitHeading({ ...added, movedFrom: widened(true) })])).toBe("formatTotal — moved from Orders.kt, visibility changed")
+    expect(headingText([formatUnitHeading({ ...removed, movedTo: { ...widened(true), path: REPORT } })])).toBe("formatTotal — moved to Report.kt, visibility changed")
+    expect([widened(), widened(false)].map(from => headingText([formatUnitHeading({ ...added, movedFrom: from })]))).toEqual([
+      "formatTotal — moved from Orders.kt",
+      "formatTotal — moved from Orders.kt",
+    ])
   })
 
   it("makes the place a declaration left one row that opens where it went, where Rust says it holds the move alone, and keeps its lines under the heading where it holds more", () => {

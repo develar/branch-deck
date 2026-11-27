@@ -9,6 +9,7 @@ import type {
   Mention,
   MentionTarget,
   MessageChange,
+  MovedPlace,
   PlanWait,
   ProseChange,
   ProseForm,
@@ -136,19 +137,27 @@ function withDescription(place: ReviewPlace, card: MentionCard): ReturnType<Ment
 }
 
 /**
+ * The badge of a declaration moved whole between two files: "Moved from Orders.kt" where it stands now, "Moved to
+ * Report.kt" where it left, and ", visibility changed" where its reach changed with it (`MovedPlace.visibility`)
+ */
+function movedStatus(direction: "from" | "to", place: MovedPlace): string {
+  return `Moved ${direction} ${fileName(place.path)}${place.visibility === true ? ", visibility changed" : ""}`
+}
+
+/**
  * What a unit is to the change, the badge of the card of a name: "New", "Removed", "Body changed", "Renamed, not
  * proven" (a body that changed in renamed names alone, `ReviewUnit.renamed`, or a declaration renamed,
- * `ReviewUnit.renamedFrom`), "Form changed"; a declaration moved whole between two files "Moved from Orders.kt" where it
- * stands now, "Moved to Report.kt" where it left (`ReviewUnit.movedFrom`, `movedTo`)
+ * `ReviewUnit.renamedFrom`), "Form changed"; a declaration moved whole between two files as `movedStatus` words it
+ * (`ReviewUnit.movedFrom`, `movedTo`)
  */
 function unitStatus(unit: ReviewUnit): Pick<MentionCard, "status" | "tone"> {
   switch (unit.kind.kind) {
     case "added":
-      return unit.movedFrom == null ? { status: "New", tone: "success" } : { status: `Moved from ${fileName(unit.movedFrom.path)}`, tone: "secondary" }
+      return unit.movedFrom == null ? { status: "New", tone: "success" } : { status: movedStatus("from", unit.movedFrom), tone: "secondary" }
     case "newFile":
       return { status: "New file", tone: "success" }
     case "removed":
-      return unit.movedTo == null ? { status: "Removed", tone: "destructive" } : { status: `Moved to ${fileName(unit.movedTo.path)}`, tone: "secondary" }
+      return unit.movedTo == null ? { status: "Removed", tone: "destructive" } : { status: movedStatus("to", unit.movedTo), tone: "secondary" }
     case "deletedFile":
     case "deletedFiles":
       return { status: "Deleted file", tone: "destructive" }

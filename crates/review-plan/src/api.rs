@@ -14,7 +14,9 @@
 //! - **Added**: no form before; **removed**: no form after, or an overload gone while others stay; **changed**: the
 //!   forms differ (`Form`: the header, the parameters, the reach, `open`, the constructors, what Java sees); one more
 //!   overload is an addition. A change of the body alone, a move between files of one namespace, keep the forms. A
-//!   member of a type added or removed with it is the type's entry.
+//!   member of a type added or removed with it is the type's entry. A module and a declaration of another kind of one
+//!   key are two declarations (`fn files` replaced by `mod files;` of Rust is a removal and an addition), as the
+//!   units pair them.
 //! - **A widening is an addition** (`widens`, `ApiChange::widened`): a change of the reach alone to a wider one, of a
 //!   declaration no subtype may override, breaks no use; it is new API, its form before kept. The reach of an
 //!   overridable member stays a change (an override must not weaken the access of what it overrides), and so does an
@@ -35,7 +37,7 @@
 
 use crate::shown::{ShownForm, ShownLine, mark_changes};
 use code_symbols::language::{Language, language_of};
-use code_symbols::summary::Reach;
+use code_symbols::summary::{DeclKind, Reach};
 use file_diffs::accio::DeclarationAt;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
@@ -182,10 +184,14 @@ struct KeyInFile {
   after: Vec<DeclarationForm>,
 }
 
+/// The forms of one key a change of a file touches, before it and after it (`api_changes`)
+type TouchedForms<'a> = (Vec<&'a DeclarationForm>, Vec<&'a DeclarationForm>);
+
 /// The API changes of `diffs` (oldest first), read with `input`, in the order `rank` sorts them
 pub fn api_changes(input: &SymbolInput, diffs: &[CommitDiff]) -> Vec<ApiChange> {
-  // key -> file -> forms
-  let mut keys: BTreeMap<String, BTreeMap<String, KeyInFile>> = BTreeMap::new();
+  // (key, a module) -> file -> forms: a module and a declaration of another kind of one key are two (`fn files` and
+  // `mod files;` of Rust), as the units pair them (`units::pair_declarations`)
+  let mut keys: BTreeMap<(String, bool), BTreeMap<String, KeyInFile>> = BTreeMap::new();
   for diff in diffs {
     // every rename carries the forms of its file along, also one that changes no declaration
     let renames: Vec<(&str, &str)> = diff
@@ -208,15 +214,15 @@ pub fn api_changes(input: &SymbolInput, diffs: &[CommitDiff]) -> Vec<ApiChange> 
       }
     }
     for file in changed_declarations(input, diff) {
-      let mut touched: BTreeMap<&str, (Vec<&DeclarationForm>, Vec<&DeclarationForm>)> = BTreeMap::new();
+      let mut touched: BTreeMap<(&str, bool), TouchedForms<'_>> = BTreeMap::new();
       for form in &file.before {
-        touched.entry(&form.key).or_default().0.push(form);
+        touched.entry((&form.key, form.kind == DeclKind::Module)).or_default().0.push(form);
       }
       for form in &file.after {
-        touched.entry(&form.key).or_default().1.push(form);
+        touched.entry((&form.key, form.kind == DeclKind::Module)).or_default().1.push(form);
       }
-      for (key, (before, after)) in touched {
-        let files = keys.entry(key.to_string()).or_default();
+      for ((key, module), (before, after)) in touched {
+        let files = keys.entry((key.to_string(), module)).or_default();
         let after: Vec<DeclarationForm> = after.into_iter().cloned().collect();
         match files.get_mut(&file.path) {
           Some(state) => {
@@ -242,7 +248,7 @@ pub fn api_changes(input: &SymbolInput, diffs: &[CommitDiff]) -> Vec<ApiChange> 
     }
   }
 
-  let mut changes: Vec<ApiChange> = keys.into_iter().filter_map(|(key, files)| change_of(&key, &files)).collect();
+  let mut changes: Vec<ApiChange> = keys.into_iter().filter_map(|((key, _), files)| change_of(&key, &files)).collect();
   // a member of a type added or removed with it
   let whole: HashSet<(ApiChangeKind, String)> = changes
     .iter()

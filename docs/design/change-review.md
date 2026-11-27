@@ -727,6 +727,38 @@ the review.
    own (`SectionUnits.held`): the jump from the note of the move at its new place lands on it, never on a row of
    another section of the file that names that one. Measured on the 15 idea-1 commits of an exact move, 19 of 46
    removals read as a row ([Moves between files](#moves-between-files)).
+37. **A file split into modules is moves** (2026-11-27, issue #281). The split of `crates/search/src/lib.rs` of accio
+   into modules (`mod x; pub use x::*;` in the root, `use super::*;` atop each module) read as 62, 35 and 75 removals
+   beside new files, of which 56, 35 and 71 said where they went, and no place it left was nothing to read. An agent
+   looked for the kind `moved`, which is the reorder inside a file; the skill now tells the two apart. The causes, each
+   fixed where the plan decides it:
+   - `pub fn files` and the new `mod files;` were one pair of the key `.files`: Rust keeps a function and a module of one
+     name in two namespaces, so a module pairs only with a module (units and API).
+   - The lines `impl X {` and `}` belong to no declaration (the summaries declare no `impl`), so the removal of a type
+     with its `impl` held "something else". The plan reads the `impl` blocks of Rust from the tokens
+     (`Sides::impls`); one whose members all go goes with them, and a member moves with the code of the header of its
+     `impl` (`MoveEnd::within`): from `impl Area for Shape` to `impl Shape` is no move. A module whose members all go
+     (an inline `mod tests` made `mod tests;`) goes with them too, and the methods of a removed type go with it.
+   - A block that removes the moved code and adds `mod answer; pub use answer::*;` belonged to the added module, and
+     the removed declarations had no block. Such lines are the skeleton of the move (a module whose file is one of the
+     change, an import, a name passed on), and the block is the move alone held by the module's unit.
+   - A test of `mod tests` was no place of a move in a new or deleted file: the places are now the declarations that
+     stand in modules alone, the members of a type still part of it, and a deleted file holds a module of no code of
+     its own by its members.
+   - Two places of one code (`fn total` of `impl WideAnswer for SearchAnswer` and of `FilesAnswer`) were no move: the
+     header of the `impl` tells them apart, and else what each is a member of (`MoveEnd::member`).
+   - The 22 declarations that a commit made `pub(crate)` before the split were moves of the split alone. The user
+     decided that a move whose reach changed is a move that says so: the same code but the modifiers of the reach
+     (`Sides::code_but_reach`: `pub(…)` of Rust, the modifier keywords of Kotlin, Java and C#, never `export`, which
+     is no reach of a declaration), paired only among the places left after the same code and by their member, is
+     `visibility: true` at both places, "moved from scope.rs, visibility changed".
+   - Three calls of `answer_metadata!` beside the moved code are code of no declaration: a line that is an item of its
+     own (its brackets close on it, it ends with `;`) goes with the move where a file the change adds holds the same
+     code as often.
+   A new file of moved code alone is still read once, at its new place (decision 36); the decision of the user. What
+   stays read: a module renamed on the way (`scope_shape_tests`), and the API of a re-export, which the card reads by
+   the key of the file the code went to (until the plan follows `pub use`). Measured in
+   [A file split into modules](#a-file-split-into-modules).
 
 ## Review Rounds
 
@@ -783,6 +815,26 @@ that keep their lines five were read, and each holds beside the move a removal t
 with `ownerDirectory` and `makeSureNameIsUnique`, and `setPythonSdkForTests` of `ModuleEx.kt` with 16 imports
 (0f58317059); five constants of `MermaidSource.kt` joined to the block of `SEQUENCE_DIAGRAM` (307f6fe7e5). A row never
 stands for such a block: the rest of it is read where it was.
+
+### A file split into modules
+
+The split of `crates/search/src/lib.rs` of accio (issue #281, decision 37), by `brd review-plan --no-cache` (a debug
+build of the change) on `~/projects/accio`, before the change (`brd` 1.29.0) and after it: the `removed` units, those
+with `moved_to`, the units with a slice `moved_out`, and the moves with `visibility`.
+
+| Range | `removed` | with `moved_to` before → after | units `moved_out` before → after | `visibility` |
+|---|---|---|---|---|
+| `297a67b7f^..297a67b7f` (scope, files, notes) | 62 → 63 | 56 → 62 | 1 → 3 | 0 |
+| `4d26fd859^..4d26fd859` (answer, grouped, lines) | 35 → 36 | 35 → 36 | 1 → 3 | 0 |
+| `bab548b10^..bab548b10` (scan, locate, regex, tests) | 75 → 77 | 71 → 77 | 0 → 2 | 0 |
+| `3385e6c8b..bab548b10` (the three and `pub(crate)` before them) | 167 → 171 | 137 → 170 | 0 → 1 | 22 |
+
+The one removal of `297a67b7f` and of the range without `moved_to` is the module `scope_shape_tests`, renamed on the
+way, whose block is read. The removals more than before are the functions that a module of their name took the place
+of (`fn files`, `fn lines`, `fn scan` and `fn candidates_answer`), units of their own now, which the pair with the
+module hid, and the modules are `added` units beside them. Every other block of `lib.rs` is the move alone but the first block of `297a67b7f`, which adds the
+`mod x; pub use x::*;` lines alone and is read once there; in the range, the block of `scope_shape_tests`. The verdict
+stays `breaks` until the API follows `pub use`.
 
 ### What was lost
 

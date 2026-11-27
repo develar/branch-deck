@@ -365,3 +365,260 @@ fn a_range_that_holds_one_place_of_a_move_says_nothing() {
   assert_eq!(moved(&base, &copied), (vec![(UnitKind::Added, false)], 0));
   assert_eq!(moved(&copied, &dropped), (vec![(UnitKind::Removed, false)], 0));
 }
+
+const LIB: &str = "src/lib.rs";
+
+/// The unit of `plan` named `name` in `path`
+fn unit_of<'a>(plan: &'a ReviewPlan, path: &str, name: &str) -> &'a crate::units::ReviewUnit {
+  let found = plan.units.iter().find(|unit| unit.slices[0].path == path && unit.name.as_deref() == Some(name));
+  found.unwrap_or_else(|| panic!("no unit {name} of {path}: {:#?}", plan.units))
+}
+
+const VALUE: &str = "pub fn value() -> u32 {\n    7\n}\n";
+
+const SHAPE: &str = "pub struct Shape {\n    pub width: u32,\n}\n\nimpl Shape {\n    pub fn area(&self) -> u32 {\n        self.width * 2\n    }\n}\n";
+
+/// openspec/specs/branch/review-units/spec.md, "Units: The place a move left is nothing to read where it holds the move
+/// alone": a type of Rust moved with its `impl` into a new file, the lines `impl Shape {` and `}` with it, and a
+/// function whose block puts `mod parsing; pub use parsing::*;` in its place, the skeleton of the move
+#[test]
+fn a_type_moved_with_its_impl_and_code_replaced_by_its_module_are_the_move_alone() {
+  let repo = TestRepo::new();
+  let parse = "pub fn parse(text: &str) -> u32 {\n    text.len() as u32\n}\n";
+  let base = repo.create_commit_with_files("Add the lib", &[(LIB, &[SHAPE, VALUE, parse].join("\n"))]);
+  let lib = format!("{VALUE}\nmod parsing;\npub use parsing::*;\nmod shape;\npub use shape::*;\n");
+  let head = repo.create_commit_with_files(
+    "Split the lib",
+    &[
+      (LIB, &lib),
+      ("src/shape.rs", &format!("use super::*;\n\n{SHAPE}")),
+      ("src/parsing.rs", &format!("use super::*;\n\n{parse}")),
+    ],
+  );
+  let plan = plan(&repo, &base, &head);
+  assert_eq!(unit_of(&plan, LIB, "Shape").moved_to.as_ref().map(|place| place.path.as_str()), Some("src/shape.rs"));
+  assert_eq!(unit_of(&plan, LIB, "parse").moved_to.as_ref().map(|place| place.path.as_str()), Some("src/parsing.rs"));
+  // the block of the type and its `impl`, and the block that removes `parse` and adds its module, held by the module
+  assert_eq!(
+    moved_out(&plan),
+    [
+      (UnitKind::Removed, Some("Shape".to_string()), LIB.to_string()),
+      (UnitKind::Added, Some("parsing".to_string()), LIB.to_string()),
+    ],
+    "{:#?}",
+    plan.units
+  );
+}
+
+/// openspec/specs/branch/review-units/spec.md, "Units: A declaration moved whole to another file says where": a member
+/// of an `impl` of Rust moves with the header of its `impl`: from `impl Area for Shape` to `impl Shape` of another file
+/// it is no move, to `impl Area for Shape` it is one
+#[test]
+fn a_member_of_an_impl_moves_with_the_header_of_its_impl() {
+  let repo = TestRepo::new();
+  let area = "    fn area(&self) -> u32 {\n        4\n    }\n";
+  let lib = "pub struct Shape;\n\npub trait Area {\n    fn area(&self) -> u32;\n}\n";
+  let other = "use crate::*;\n\npub fn other() -> u32 {\n    1\n}\n";
+  let base = repo.create_commit_with_files(
+    "Add the area",
+    &[(LIB, &format!("mod other;\n\n{lib}\nimpl Area for Shape {{\n{area}}}\n")), ("src/other.rs", other)],
+  );
+  let lib_after = format!("mod other;\n\n{lib}");
+  let inherent = repo.create_commit_with_files("Area of its own", &[(LIB, &lib_after), ("src/other.rs", &format!("{other}\nimpl Shape {{\n{area}}}\n"))]);
+  let read = units(&plan(&repo, &base, &inherent));
+  assert_eq!(read.iter().filter(|unit| unit.3.is_some() || unit.4.is_some()).count(), 0, "{read:?}");
+  repo.git(&["reset", "-q", "--hard", &base]);
+  let trait_impl = repo.create_commit_with_files(
+    "Area elsewhere",
+    &[(LIB, &lib_after), ("src/other.rs", &format!("{other}\nimpl Area for Shape {{\n{area}}}\n"))],
+  );
+  let plan = plan(&repo, &base, &trait_impl);
+  assert_eq!(unit_of(&plan, LIB, "area").moved_to.as_ref().map(|place| place.path.as_str()), Some("src/other.rs"));
+  assert_eq!(unit_of(&plan, "src/other.rs", "area").moved_from.as_ref().map(|place| place.path.as_str()), Some(LIB));
+}
+
+const TESTS: &str = "#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn value_is_seven() {\n        assert_eq!(value(), 7);\n    }\n\n    #[test]\n    fn value_is_odd() {\n        assert_eq!(value() % 2, 1);\n    }\n}\n";
+
+const ODD_TEST: &str = "    #[test]\n    fn value_is_odd() {\n        assert_eq!(value() % 2, 1);\n    }\n";
+
+/// openspec/specs/branch/review-units/spec.md, "Units: A declaration moved whole to another file says where": a test of
+/// `mod tests` of `lib.rs` moved into `mod tests` of a new file, one of a deleted file moved into `mod tests` of
+/// `lib.rs`, and the tests of an inline `mod tests` moved into `tests.rs`, `mod tests;` in its place: the members of a
+/// module are places of a move, and the places they left are the move alone
+#[test]
+fn a_member_of_a_module_moves_between_files_and_its_module_goes_with_it() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add the lib", &[(LIB, &format!("{VALUE}\n{TESTS}"))]);
+  let seven_only = TESTS.replace(&format!("\n{ODD_TEST}"), "");
+  let odd = format!("#[cfg(test)]\nmod tests {{\n    use crate::*;\n\n{ODD_TEST}}}\n");
+  let split = repo.create_commit_with_files("Odd apart", &[(LIB, &format!("mod odd;\n\n{VALUE}\n{seven_only}")), ("src/odd.rs", &odd)]);
+  let read = plan(&repo, &base, &split);
+  assert_eq!(unit_of(&read, LIB, "value_is_odd").moved_to.as_ref().map(|place| place.path.as_str()), Some("src/odd.rs"));
+  assert_eq!(
+    moved_out(&read),
+    [(UnitKind::Removed, Some("value_is_odd".to_string()), LIB.to_string())],
+    "{:#?}",
+    read.units
+  );
+
+  // back from the deleted file: the file holds its module alone, and the module its test
+  repo.git(&["rm", "-q", "src/odd.rs"]);
+  let joined = repo.create_commit_with_files("Odd back", &[(LIB, &format!("{VALUE}\n{TESTS}"))]);
+  let read = plan(&repo, &split, &joined);
+  assert_eq!(unit_of(&read, LIB, "value_is_odd").moved_from.as_ref().map(|place| place.path.as_str()), Some("src/odd.rs"));
+  assert!(
+    moved_out(&read).contains(&(UnitKind::DeletedFile, Some("odd.rs".to_string()), "src/odd.rs".to_string())),
+    "{:#?}",
+    read.units
+  );
+
+  // the inline module made `mod tests;`, its tests in `tests.rs`, one indent less
+  let outdented = |test: &str| test.lines().map(|line| line.strip_prefix("    ").unwrap_or(line)).collect::<Vec<_>>().join("\n");
+  let tests_file = format!(
+    "use super::*;\n\n{}\n\n{}\n",
+    outdented(&ODD_TEST.replace("value_is_odd", "value_is_seven").replace("% 2, 1", ", 7")),
+    outdented(ODD_TEST)
+  );
+  let outline = repo.create_commit_with_files("Tests apart", &[(LIB, &format!("{VALUE}\n#[cfg(test)]\nmod tests;\n")), ("src/tests.rs", &tests_file)]);
+  let read = plan(&repo, &joined, &outline);
+  for name in ["value_is_seven", "value_is_odd"] {
+    assert_eq!(unit_of(&read, LIB, name).moved_to.as_ref().map(|place| place.path.as_str()), Some("src/tests.rs"), "{name}");
+  }
+  let module = unit_of(&read, LIB, "tests");
+  assert_eq!((&module.kind, module.slices[0].moved_out), (&UnitKind::Behaviour, true), "{:#?}", read.units);
+}
+
+/// openspec/specs/branch/review-units/spec.md, "Units: A declaration moved whole to another file says where": two
+/// methods of one code, of `impl Answer for A` and `impl Answer for B`, moved to two files, each pairs with its own
+#[test]
+fn two_places_of_one_code_pair_by_what_they_are_members_of() {
+  let repo = TestRepo::new();
+  let total = "    fn total(&self) -> usize {\n        self.total\n    }\n";
+  let types = "pub trait Answer {\n    fn total(&self) -> usize;\n}\n\npub struct A {\n    pub total: usize,\n}\n\npub struct B {\n    pub total: usize,\n}\n";
+  let of = |name: &str| format!("impl Answer for {name} {{\n{total}}}\n");
+  let base = repo.create_commit_with_files("Add the answers", &[(LIB, &format!("{types}\n{}\n{}", of("A"), of("B")))]);
+  let head = repo.create_commit_with_files(
+    "Answers apart",
+    &[
+      (LIB, &format!("mod a;\nmod b;\n\n{types}")),
+      ("src/a.rs", &format!("use crate::*;\n\n{}", of("A"))),
+      ("src/b.rs", &format!("use crate::*;\n\n{}", of("B"))),
+    ],
+  );
+  let plan = plan(&repo, &base, &head);
+  let went = |key: &str| {
+    let unit = plan.units.iter().find(|unit| unit.key.as_deref() == Some(key)).unwrap();
+    unit.moved_to.as_ref().map(|place| place.path.clone())
+  };
+  assert_eq!(
+    (went(".A.total"), went(".B.total")),
+    (Some("src/a.rs".to_string()), Some("src/b.rs".to_string())),
+    "{:#?}",
+    plan.units
+  );
+}
+
+/// openspec/specs/branch/review-units/spec.md, "Units: A declaration moved whole to another file says where": a function
+/// and a type with a field made `pub(crate)` by one commit and moved by the next are moves of the range of both whose
+/// reach changed (`visibility`), each a move of the second alone; moved with a changed line too it is no move
+#[test]
+fn a_move_whose_reach_changed_says_so() {
+  let repo = TestRepo::new();
+  let helper = "fn helper() -> u32 {\n    7\n}\n";
+  let reread = "struct Reread {\n    glob: String,\n}\n";
+  let other = "use crate::*;\n\npub fn other() -> u32 {\n    1\n}\n";
+  let base = repo.create_commit_with_files("Add the helper", &[(LIB, &format!("mod other;\n\n{VALUE}\n{helper}\n{reread}")), ("src/other.rs", other)]);
+  let widen = |text: &str| {
+    text
+      .replace("fn helper", "pub(crate) fn helper")
+      .replace("struct", "pub(crate) struct")
+      .replace("    glob", "    pub(crate) glob")
+  };
+  let widened = repo.create_commit_with_files("Widen the helper", &[(LIB, &format!("mod other;\n\n{VALUE}\n{}\n{}", widen(helper), widen(reread)))]);
+  let moved = repo.create_commit_with_files(
+    "Move the helper",
+    &[
+      (LIB, &format!("mod other;\n\n{VALUE}")),
+      ("src/other.rs", &format!("{other}\n{}\n{}", widen(helper), widen(reread))),
+    ],
+  );
+  let flags = |plan: &ReviewPlan| -> Vec<(String, Option<bool>, Option<bool>)> {
+    let mut flags: Vec<(String, Option<bool>, Option<bool>)> = plan
+      .units
+      .iter()
+      .filter(|unit| matches!(unit.kind, UnitKind::Added | UnitKind::Removed))
+      .map(|unit| {
+        let visibility = |place: &Option<MovedPlace>| place.as_ref().map(|place| place.visibility);
+        (
+          format!("{}:{}", unit.slices[0].path, unit.name.clone().unwrap_or_default()),
+          visibility(&unit.moved_from),
+          visibility(&unit.moved_to),
+        )
+      })
+      .collect();
+    flags.sort();
+    flags
+  };
+  let lib = |name: &str| format!("{LIB}:{name}");
+  let other_of = |name: &str| format!("src/other.rs:{name}");
+  assert_eq!(
+    flags(&plan(&repo, &base, &moved)),
+    [
+      (lib("Reread"), None, Some(true)),
+      (lib("helper"), None, Some(true)),
+      (other_of("Reread"), Some(true), None),
+      (other_of("helper"), Some(true), None),
+    ]
+  );
+  assert_eq!(
+    flags(&plan(&repo, &widened, &moved)),
+    [
+      (lib("Reread"), None, Some(false)),
+      (lib("helper"), None, Some(false)),
+      (other_of("Reread"), Some(false), None),
+      (other_of("helper"), Some(false), None),
+    ]
+  );
+  // moved with a changed line beside the reach: no move
+  repo.git(&["reset", "-q", "--hard", &widened]);
+  let changed = repo.create_commit_with_files(
+    "Move and change the helper",
+    &[
+      (LIB, &format!("mod other;\n\n{VALUE}")),
+      ("src/other.rs", &format!("{other}\n{}\n{}", widen(helper).replace('7', "8"), widen(reread))),
+    ],
+  );
+  let read = flags(&plan(&repo, &base, &changed));
+  assert_eq!(
+    read
+      .iter()
+      .filter(|(name, ..)| name.ends_with(":helper"))
+      .map(|(_, from, to)| (*from, *to))
+      .collect::<Vec<_>>(),
+    [(None, None), (None, None)]
+  );
+}
+
+/// openspec/specs/branch/review-units/spec.md, "Units: The place a move left is nothing to read where it holds the move
+/// alone": a call of a macro at the top of `lib.rs` moved with a function into a new file goes with it; left behind, or
+/// changed on the way, the place it left is read
+#[test]
+fn a_line_of_no_declaration_moved_into_a_new_file_goes_with_the_move() {
+  let repo = TestRepo::new();
+  let macro_rules = "macro_rules! answer {\n    ($name:ident) => {};\n}\n";
+  let parse = "pub fn parse(text: &str) -> u32 {\n    text.len() as u32\n}\n";
+  let call = "answer!(Parse);\n";
+  let base = repo.create_commit_with_files("Add the lib", &[(LIB, &[macro_rules, VALUE, parse, call].join("\n"))]);
+  let lib = format!("{macro_rules}\nmod parsing;\n\n{VALUE}");
+  let moved = repo.create_commit_with_files("Parse apart", &[(LIB, &lib), ("src/parsing.rs", &format!("use super::*;\n\n{parse}\n{call}"))]);
+  let read = plan(&repo, &base, &moved);
+  assert_eq!(moved_out(&read), [(UnitKind::Removed, Some("parse".to_string()), LIB.to_string())], "{:#?}", read.units);
+  repo.git(&["reset", "-q", "--hard", &base]);
+  let changed = repo.create_commit_with_files(
+    "Parse apart, another call",
+    &[(LIB, &lib), ("src/parsing.rs", &format!("use super::*;\n\n{parse}\n{}", call.replace("Parse", "Parsed")))],
+  );
+  let plan = plan(&repo, &base, &changed);
+  assert_eq!(moved_out(&plan), [], "{:#?}", plan.units);
+  assert!(unit_of(&plan, LIB, "parse").moved_to.is_some());
+}

@@ -1030,3 +1030,29 @@ fn each_block_counts_its_lines_as_the_engine_does() {
   // last line
   assert_eq!(blocks, [(0, 3, 0), (1, 6, 0)]);
 }
+
+/// openspec/specs/branch/review-units/spec.md, "Units: Declarations are paired by key, form, then order": a function of
+/// Rust and the module `mod files;` that takes its name are two declarations, the function removed and the module added
+#[test]
+fn a_function_and_a_module_of_its_name_are_two_declarations() {
+  let repo = TestRepo::new();
+  let files = "pub fn files(count: u32) -> u32 {\n    count * 2\n}\n";
+  let other = "pub fn other() -> u32 {\n    1\n}\n";
+  let base = repo.create_commit_with_files("Add the lib", &[("src/lib.rs", &format!("{other}\n{files}"))]);
+  let head = repo.create_commit_with_files(
+    "Files apart",
+    &[
+      ("src/lib.rs", &format!("mod files;\npub use files::*;\n\n{other}")),
+      ("src/files.rs", &format!("use super::*;\n\n{files}")),
+    ],
+  );
+  let plan = plan(&repo, &base, &head);
+  let mut lib: Vec<(UnitKind, Option<&str>)> = plan
+    .units
+    .iter()
+    .filter(|unit| unit.slices[0].path == "src/lib.rs")
+    .map(|unit| (unit.kind.clone(), unit.key.as_deref()))
+    .collect();
+  lib.sort_by_key(|(kind, _)| format!("{kind:?}"));
+  assert_eq!(lib, [(UnitKind::Added, Some(".files")), (UnitKind::Removed, Some(".files"))], "{:#?}", plan.units);
+}

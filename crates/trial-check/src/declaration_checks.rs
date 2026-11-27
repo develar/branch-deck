@@ -548,6 +548,9 @@ pub struct FileDeclarations {
   pub declarations: Vec<SpannedDeclaration>,
   /// What a change of the imports alone changes (`FileSummary::import_lines`)
   pub import_lines: Vec<LineSpan>,
+  /// The lines of the imports that pass their names on (`Import::exported`: a Rust `pub use`, a TypeScript
+  /// `export … from`), from 1, in source order: no import statements, and no declarations either
+  pub exported_lines: Vec<u32>,
 }
 
 /// The declarations of the file `path` of the summary of `blob` that another declaration of the file is not a local of
@@ -579,6 +582,7 @@ pub fn spanned_declarations(input: &SymbolInput, path: &str, blob: &str) -> Opti
   Some(FileDeclarations {
     declarations,
     import_lines: summary.import_lines.clone(),
+    exported_lines: summary.imports.iter().filter(|import| import.exported).map(|import| import.line).collect(),
   })
 }
 

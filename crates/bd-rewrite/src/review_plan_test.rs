@@ -355,23 +355,32 @@ fn prints_the_renamed_of_a_body_changed_in_a_rename_alone_and_of_the_declaration
   );
 }
 
+/// The files of the moves between files of the tests below: a function of the orders, which moves to the report
+const FORMAT_TOTAL: &str = "fun formatTotal(total: Int): String {\n  return \"Total: $total\"\n}\n";
+const ORDERS: &str = "class Orders(private val items: List<Int>) {\n  fun total(): Int = items.sum()\n}\n";
+const REPORT: &str = "class Report(private val orders: Orders) {\n  fun render(): String = formatTotal(orders.total())\n}\n";
+
+/// A repository whose `Orders.kt` holds `ORDERS` and `moving` and whose `Report.kt` holds `REPORT`, its head as the base,
+/// and `Orders.kt` written as `ORDERS` alone: what moves out of it the test writes and commits
+fn orders_moving(moving: &str) -> (TestRepo, String) {
+  let repo = repo_with_baseline(&[
+    ("src/a/Orders.kt", &format!("package a\n\n{ORDERS}\n{moving}")),
+    ("src/a/Report.kt", &format!("package a\n\n{REPORT}")),
+  ]);
+  let base = git(&repo, &["rev-parse", "HEAD"]);
+  write(&repo, "src/a/Orders.kt", format!("package a\n\n{ORDERS}"));
+  (repo, base)
+}
+
 /// The units of a function moved whole to a file that stays and of one extracted into a new file, each the same code:
 /// the removed one says where it went (`moved_to`), the added one where it came from (`moved_from`), each with the unit
 /// that shows the other place, and the new file, taken whole, says neither; the block that removes both is the move
 /// alone (`moved_out` of its slice)
 #[test_log::test]
 fn prints_the_moved_from_and_moved_to_of_a_declaration_moved_whole_to_another_file() {
-  let format = "fun formatTotal(total: Int): String {\n  return \"Total: $total\"\n}\n";
   let parse = "fun parseTotal(text: String): Int {\n  return text.removePrefix(\"Total: \").toInt()\n}\n";
-  let orders = "class Orders(private val items: List<Int>) {\n  fun total(): Int = items.sum()\n}\n";
-  let report = "class Report(private val orders: Orders) {\n  fun render(): String = formatTotal(orders.total())\n}\n";
-  let repo = repo_with_baseline(&[
-    ("src/a/Orders.kt", &format!("package a\n\n{orders}\n{format}\n{parse}")),
-    ("src/a/Report.kt", &format!("package a\n\n{report}")),
-  ]);
-  let base = git(&repo, &["rev-parse", "HEAD"]);
-  write(&repo, "src/a/Orders.kt", format!("package a\n\n{orders}"));
-  write(&repo, "src/a/Report.kt", format!("package a\n\n{report}\n{format}"));
+  let (repo, base) = orders_moving(&format!("{FORMAT_TOTAL}\n{parse}"));
+  write(&repo, "src/a/Report.kt", format!("package a\n\n{REPORT}\n{FORMAT_TOTAL}"));
   write(&repo, "src/a/Parsing.kt", format!("package a\n\n{parse}"));
   commit_all(&repo, "Move the totals", 1_700_000_100);
 
@@ -419,6 +428,37 @@ fn prints_the_moved_from_and_moved_to_of_a_declaration_moved_whole_to_another_fi
     .filter(|(_, moved_out)| !moved_out.is_null())
     .collect();
   assert_eq!(moved_out, [(json!("declaration:src/a/Orders.kt:a.formatTotal:total:Int"), json!(true))], "{output}");
+  assert_in_schema(&repo, &output);
+}
+
+/// A declaration moved whole whose reach the commits changed on the way prints `visibility: true` at both places; the
+/// same code at both places prints no `visibility`
+#[test_log::test]
+fn prints_the_visibility_of_a_move_whose_reach_changed() {
+  let (repo, base) = orders_moving(&format!("private {FORMAT_TOTAL}"));
+  write(&repo, "src/a/Report.kt", format!("package a\n\n{REPORT}\ninternal {FORMAT_TOTAL}"));
+  commit_all(&repo, "Move the format", 1_700_000_100);
+
+  let (exit_code, output) = run_in(&repo, &["review-plan", &format!("{base}..HEAD")]);
+  assert_eq!(exit_code, 0, "{output}");
+  let mut moved = unit_fields(&output, &["kind", "moved_from", "moved_to"]);
+  moved.sort_by_key(|unit| unit[0].to_string());
+  assert_eq!(
+    moved,
+    [
+      [
+        json!("added"),
+        json!({ "path": "src/a/Orders.kt", "line": 7, "unit": "declaration:src/a/Orders.kt:a.formatTotal:total:Int", "visibility": true }),
+        Value::Null
+      ],
+      [
+        json!("removed"),
+        Value::Null,
+        json!({ "path": "src/a/Report.kt", "line": 7, "unit": "declaration:src/a/Report.kt:a.formatTotal:total:Int", "visibility": true })
+      ],
+    ],
+    "{output}"
+  );
   assert_in_schema(&repo, &output);
 }
 

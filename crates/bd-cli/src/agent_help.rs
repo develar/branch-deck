@@ -987,8 +987,8 @@ leave agents alone, and off when they are back (`brd unattended off`, the mark i
 /// and others), naming brd by `command`, its full path. It says when to use brd, what `brd workspace` asks, the rules an
 /// agent must not miss before it reads any help, where the workflow is, and how to review a change by the plan of
 /// `brd review-plan` (its `reading`, then its `units`, the kinds of `UnitKindOutput` and `MechanicalKind` as the output
-/// spells them, a move between files by `moved_to` and `moved_from`, which `agent_help_test.rs` checks against its
-/// schema); the rest lives in the binary, so it can't
+/// spells them, the reorder inside a file `moved` apart from a move between files by `moved_to` and `moved_from`, which
+/// `agent_help_test.rs` checks against its schema); the rest lives in the binary, so it can't
 /// fall out of date: `brd help agent` is the workflow, `brd <command> --help` the outputs and refusals. `allowed-tools` (Claude Code) lets the agent
 /// run every brd command without a permission prompt while the skill is active, also the ones that rewrite the branch or
 /// push: a push still waits for the user, by the rule of the body
@@ -1117,10 +1117,11 @@ commit) and judge it by the JSON:
   `mechanical` ones, last (`buildModel`, `moduleList`, `importsOnly`, `whitespace`, `moved`, `renamed`, `generated`);
   `shape`, `behaviour`, `added` and `removed` are changes of a declaration to judge; read `newFile`, `repeatedEdit` and
   `other` too.
-- A move is never quiet: read it where it stands now, against its `old` lines; only a declaration of the same code
-  whose place the code index proved free is `moved`. A unit's `renamed` or `renamed_from` is a rename no index proved:
-  check it. A `removed` unit's `moved_to` and an `added` one's `moved_from` name the other place of the same code:
-  one move between files, read once at its new place; its removal is no loss.
+- A move is never quiet: read it where it stands now, against its `old` lines. The mechanical `moved` is a
+  reorder inside one file: a declaration of the same code whose place the code index proved free. A `removed` unit's
+  `moved_to` and an `added` one's `moved_from` name the other file of the same code, its `visibility` a reach that
+  changed with it: one move between files, read once at its new place; its removal is no loss, nor is a slice
+  `moved_out`. A unit's `renamed` or `renamed_from` is a rename no index proved: check it.
 - Never skip a removal (`removed`, `deletedFile`, `deletedFiles`); `verdict: breaks` is a use left outside that can
   break: `verdict_by` names those entries of `api`, their `usages.outside_sites` where. A list that ends at 20
   generated files counts the rest (`files_omitted`, `slices_omitted`, `stopsOmitted`); pass them by their kind.

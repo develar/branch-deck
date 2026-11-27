@@ -5713,6 +5713,11 @@ export type MovedPlace = {
 	 *  there, or the unit that takes its file whole (`newFile`, `deletedFile`, `deletedFiles`)
 	 */
 	unit: string,
+	/**
+	 *  The code is the same but for the modifiers of its reach (`fn helper` there, `pub(crate) fn helper` here): the move
+	 *  changed who may use it (`whitespace::Sides::code_but_reach`). False where the code is the same
+	 */
+	visibility?: boolean,
 };
 
 /**  What a declaration or a removal of declared needs did to one branch */

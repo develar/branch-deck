@@ -34,11 +34,13 @@
 //!   around it (`renamed_key`).
 //! - **Moves between files**: a unit `removed` and a unit `added` whose declarations have the same code, in two files,
 //!   say where each went and came from (`ReviewUnit::moved_to`, `ReviewUnit::moved_from`, `moved_across`), and so does
-//!   such a unit where the other place is an outermost declaration of a file the commits add or delete, whose unit says
-//!   nothing: a word of each, never another kind, with the unit that shows the other place. The slice of a place a move
-//!   left that holds the move alone is `UnitSlice::moved_out` (`SourceFile::removed_alone`, a deleted file in
+//!   such a unit where the other place is a declaration of a file the commits add or delete that stands in modules
+//!   alone (`in_modules`), whose unit says nothing: a word of each, never another kind, with the unit that shows the
+//!   other place, and whether the reach changed with it (`MovedPlace::visibility`). The slice of a place a move left
+//!   that holds the move alone is `UnitSlice::moved_out` (`SourceFile::removed_alone`, a deleted file in
 //!   `whole_file_ends`): the review reads the move at its new place. The places are collected as the files are cut
-//!   (`MoveEnds`).
+//!   (`MoveEnds`). A module and a declaration of another kind of one key are two declarations (`by_key`): `mod files;`
+//!   in the place of `fn files` is an addition beside a removal.
 //! - **The order**: the files in the order of the plan (`order`), each unit at its first block, the declarations
 //!   without a block after the unit of the block that holds them, by their line; a repeated edit at the place of its
 //!   first file; the mechanical units last.
@@ -51,11 +53,12 @@
 
 use crate::api::{FormChange, form_changes, listed};
 use crate::files::{ChangedFile, FileKinds, MechanicalKind, lines_edit_key, without_whitespace};
-use crate::moved_across::{MoveEnd, MoveEnds, MovedOut, mark_moves};
+use crate::moved_across::{Held, MoveEnd, MoveEnds, MovedOut, mark_moves};
 use crate::pair::{LineBlock, PairBlocks};
 use crate::renamed_uses::{DeclaredRenames, FileRenames, same_but_names};
-use crate::whitespace::{Sides, TextTokens};
+use crate::whitespace::{Code, ImplBlock, Sides, TextTokens};
 use code_symbols::language::language_of;
+use code_symbols::summary::DeclKind;
 use code_tokens::indentation_matters;
 use diff_marks::index::MovesAnswer;
 use diff_marks::reorder::lines_of as declared_lines;
@@ -251,6 +254,11 @@ pub struct MovedPlace {
   /// The unit that shows the place, by its id (`ReviewUnit::id`): the unit `added` or `removed` of the declaration
   /// there, or the unit that takes its file whole (`newFile`, `deletedFile`, `deletedFiles`)
   pub unit: String,
+  /// The code is the same but for the modifiers of its reach (`fn helper` there, `pub(crate) fn helper` here): the move
+  /// changed who may use it (`whitespace::Sides::code_but_reach`). False where the code is the same
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub visibility: bool,
 }
 
 /// The old name of a declaration renamed where the index has not proven the rename (`ReviewUnit::renamed_from`)
@@ -384,6 +392,9 @@ fn in_lines_of_diffs(mut declarations: FileDeclarations, lines: &TextLines<'_>) 
   for span in &mut declarations.import_lines {
     translate(&mut span.start, &mut span.end);
   }
+  for line in &mut declarations.exported_lines {
+    *line = lines.of_summary(*line, *line).0;
+  }
   declarations
 }
 
@@ -433,11 +444,14 @@ struct Paired {
   after: Option<usize>,
 }
 
-/// The places of `declarations` by their key, in order, each key as `key_of` gives it
-fn by_key<'a>(declarations: &'a [SpannedDeclaration], key_of: impl Fn(&'a str) -> Cow<'a, str>) -> BTreeMap<Cow<'a, str>, Vec<usize>> {
-  let mut keys: BTreeMap<Cow<'a, str>, Vec<usize>> = BTreeMap::new();
+/// The places of `declarations` by their key, in order, each key as `key_of` gives it, and whether it is a module: a
+/// module and a declaration of another kind of one name are two (`fn files` and `mod files;` of Rust, a value and a
+/// module of two namespaces of the language)
+fn by_key<'a>(declarations: &'a [SpannedDeclaration], key_of: impl Fn(&'a str) -> Cow<'a, str>) -> BTreeMap<(Cow<'a, str>, bool), Vec<usize>> {
+  let mut keys: BTreeMap<(Cow<'a, str>, bool), Vec<usize>> = BTreeMap::new();
   for (index, declaration) in declarations.iter().enumerate() {
-    keys.entry(key_of(declaration.form.key.as_str())).or_default().push(index);
+    let module = declaration.form.kind == DeclKind::Module;
+    keys.entry((key_of(declaration.form.key.as_str()), module)).or_default().push(index);
   }
   keys
 }
@@ -458,8 +472,9 @@ fn renamed_key<'a>(key: &'a str, renamed: &HashMap<String, (String, usize)>) -> 
   Cow::Borrowed(key)
 }
 
-/// The declarations of the two sides paired: per key, an equal form first, then in order; each one once. A key of a
-/// declaration before the commits is read as `renamed` renamed it (`renamed_key`)
+/// The declarations of the two sides paired: per key, a module apart from the other kinds (`by_key`), an equal form
+/// first, then in order; each one once. A key of a declaration before the commits is read as `renamed` renamed it
+/// (`renamed_key`)
 fn pair_declarations(before: &[SpannedDeclaration], after: &[SpannedDeclaration], renamed: &HashMap<String, (String, usize)>) -> Vec<Paired> {
   let (old_keys, mut new_keys) = (by_key(before, |key| renamed_key(key, renamed)), by_key(after, Cow::Borrowed));
   let mut pairs: Vec<Paired> = Vec::new();
@@ -620,6 +635,8 @@ pub(crate) fn review_units(
     }
   }
   let mut cut = Cut::default();
+  // the files of the pair: a module of Rust declared `mod x;` whose file is one of them belongs to a move (`skeleton`)
+  let paths: HashSet<&str> = files.iter().flat_map(|file| [file.path, file.first_path]).collect();
   // the source files the commits add (`true`) or delete, taken whole, by their index: places of moves (`moved_across`)
   let mut whole: Vec<(usize, bool)> = Vec::new();
   for (index, (file, pair)) in files.iter().zip(pairs).enumerate() {
@@ -675,6 +692,7 @@ pub(crate) fn review_units(
               old,
               new,
               repeated: group_of.get(&index).copied(),
+              paths: &paths,
             };
             source.cut(blocks, &mut cut);
           }
@@ -732,8 +750,10 @@ pub(crate) fn review_units(
 }
 
 /// Add to `moves` the places of the source files of `files` the commits add (`true`) or delete, taken whole (`whole`,
-/// by their index): their outermost declarations (`outermost`), each with its code, read only where one has the name of
-/// a unit of `moves`, which every place of its code has (`moved_across`, "Cost")
+/// by their index): their declarations that stand in modules alone (`in_modules`), each with its code, read only where
+/// one has the name of a unit of `moves`, which every place of its code has (`moved_across`, "Cost"); and of a file the
+/// commits delete that holds them alone, what it holds (`Held`): its outermost declarations, a module of no code of its
+/// own by its members too
 fn whole_file_ends(input: &SymbolInput, files: &[ChangedFile<'_>], texts: &HashMap<String, String>, tokens: &TextTokens<'_>, whole: &[(usize, bool)], moves: &mut MoveEnds) {
   if whole.is_empty() || !moves.has_units() {
     return;
@@ -753,44 +773,175 @@ fn whole_file_ends(input: &SymbolInput, files: &[ChangedFile<'_>], texts: &HashM
     } else {
       tokens.sides(path, Some(blob), path, None)
     };
-    // the places of its outermost declarations; `None` once one of them can be no place of a move
-    let mut ends: Option<Vec<usize>> = Some(Vec::new());
-    for declaration in outermost(&declarations.declarations) {
-      let code = names.contains(&declaration.form.name).then(|| sides.code(new_side, lines_of(declaration))).flatten();
-      let Some(code) = code else {
-        ends = None;
-        continue;
-      };
+    let impls = sides.impls(new_side);
+    let all = &declarations.declarations;
+    // the places, by the place of their declaration in `all`
+    let mut places: HashMap<usize, usize> = HashMap::new();
+    for (at, declaration) in in_modules(all) {
+      let span = lines_of(declaration);
+      let code = names.contains(&declaration.form.name).then(|| sides.code(new_side, span.clone())).flatten();
+      let Some(code) = code else { continue };
       let end = MoveEnd {
         unit: None,
         path: file.path.to_string(),
         line: declaration.form.line,
         name: declaration.form.name.clone(),
+        member: member_of(all, declaration),
         code,
+        loose: sides.code_but_reach(new_side, span.clone()),
+        within: within_of(&impls, &span),
       };
-      let index = moves.push(new_side, end);
-      if let Some(ends) = &mut ends {
-        ends.push(index);
-      }
+      places.insert(at, moves.push(new_side, end));
+    }
+    if new_side {
+      // its lines of no declaration that are items of their own, where a place left may hold them
+      let declared = |line: u32| {
+        all.iter().any(|declaration| lines_of(declaration).contains(&line))
+          || impls.iter().any(|block| (block.header.0..=block.close).contains(&line))
+          || declarations.import_lines.iter().any(|span| (span.start.saturating_sub(1)..span.end).contains(&line))
+          || declarations.exported_lines.contains(&(line + 1))
+      };
+      let count = u32::try_from(lines.all().len()).unwrap_or(u32::MAX);
+      moves
+        .lines_arrived
+        .extend((0..count).filter(|&line| !declared(line)).filter_map(|line| sides.item_line_code(true, line)));
+      continue;
     }
     // a file the commits delete whose every line of code is a line of an outermost declaration or of an import or
     // package statement is the move alone once each of them moved: its comments and its imports go with it
-    if !new_side && let Some(ends) = ends {
-      let held: Vec<Range<u32>> = outermost(&declarations.declarations)
-        .map(lines_of)
-        .chain(declarations.import_lines.iter().map(|span| span.start.saturating_sub(1)..span.end))
-        .collect();
-      let count = u32::try_from(lines.all().len()).unwrap_or(u32::MAX);
-      let alone = (0..count).all(|line| held.iter().any(|lines| lines.contains(&line)) || sides.code(false, line..line + 1).is_none());
-      if alone {
-        moves.out.push(MovedOut {
-          unit: None,
-          path: file.path.to_string(),
-          ends,
-        });
-      }
+    let held: Option<Vec<Held>> = outermost_places(all).map(|at| held_in(all, at, &places, &lines, &declarations, &sides)).collect();
+    let Some(held) = held else { continue };
+    let covered: Vec<Range<u32>> = outermost(all)
+      .map(lines_of)
+      .chain(declarations.import_lines.iter().map(|span| span.start.saturating_sub(1)..span.end))
+      .collect();
+    let count = u32::try_from(lines.all().len()).unwrap_or(u32::MAX);
+    let alone = (0..count).all(|line| covered.iter().any(|lines| lines.contains(&line)) || sides.code(false, line..line + 1).is_none());
+    if alone {
+      moves.out.push(MovedOut {
+        unit: None,
+        path: file.path.to_string(),
+        held,
+      });
     }
   }
+}
+
+/// What the declaration `all[at]` of a file the commits delete holds (`Held`): its place (`places`), and of a module
+/// that holds no code of its own (`bare_module`) what each of its members holds; `None` where it is no place and is
+/// not held by its members
+fn held_in(all: &[SpannedDeclaration], at: usize, places: &HashMap<usize, usize>, lines: &TextLines<'_>, declarations: &FileDeclarations, sides: &Sides<'_, '_>) -> Option<Held> {
+  let declaration = &all[at];
+  let end = places.get(&at).copied();
+  if declaration.form.kind != DeclKind::Module {
+    return end.map(Held::End);
+  }
+  let key = declaration.form.key.as_str();
+  let children: Vec<usize> = (0..all.len())
+    .filter(|&other| all[other].form.key.rsplit_once('.').is_some_and(|(parent, _)| parent == key))
+    .collect();
+  let members: Option<Vec<Held>> = if bare_module(all, at, &children, lines, declarations, sides) {
+    children.iter().map(|&child| held_in(all, child, places, lines, declarations, sides)).collect()
+  } else {
+    None
+  };
+  match (end, members) {
+    (None, None) => None,
+    (None, Some(members)) if members.is_empty() => None,
+    (end, members) => Some(Held::Module {
+      end,
+      members: members.unwrap_or_default(),
+    }),
+  }
+}
+
+/// Whether the module `all[at]` of the old side holds no code of its own: each of its lines is a line of its header
+/// (to the line of its name), its closing line, a line of one of `children` or of an import, or holds no code
+fn bare_module(all: &[SpannedDeclaration], at: usize, children: &[usize], lines: &TextLines<'_>, declarations: &FileDeclarations, sides: &Sides<'_, '_>) -> bool {
+  let span = lines_of(&all[at]);
+  let name = lines.of_git(all[at].form.line.saturating_sub(1)..all[at].form.line).start;
+  let imports = || declarations.import_lines.iter().map(|span| span.start.saturating_sub(1)..span.end);
+  span.clone().all(|line| {
+    line <= name
+      || line + 1 == span.end
+      || children.iter().any(|&child| lines_of(&all[child]).contains(&line))
+      || imports().any(|import| import.contains(&line))
+      || sides.no_code_on(false, line..line + 1)
+  })
+}
+
+/// The places in `all` of its outermost declarations (`outermost`)
+fn outermost_places(all: &[SpannedDeclaration]) -> impl Iterator<Item = usize> + '_ {
+  let keys: HashSet<&str> = all.iter().map(|declaration| declaration.form.key.as_str()).collect();
+  (0..all.len()).filter(move |&at| {
+    let mut key = all[at].form.key.as_str();
+    while let Some((container, _)) = key.rsplit_once('.') {
+      if keys.contains(container) {
+        return false;
+      }
+      key = container;
+    }
+    true
+  })
+}
+
+/// The declarations of `all`, with their places, that stand in modules alone: each container of one that the file
+/// declares is a module (a function of `mod tests` too), none a type, a function or a value (a member of a type is
+/// part of its unit). The places of a move of a file taken whole (`whole_file_ends`)
+fn in_modules(all: &[SpannedDeclaration]) -> impl Iterator<Item = (usize, &SpannedDeclaration)> {
+  let kinds: HashMap<&str, DeclKind> = all.iter().map(|declaration| (declaration.form.key.as_str(), declaration.form.kind)).collect();
+  all.iter().enumerate().filter(move |(_, declaration)| {
+    let mut key = declaration.form.key.as_str();
+    while let Some((container, _)) = key.rsplit_once('.') {
+      if kinds.get(container).is_some_and(|kind| *kind != DeclKind::Module) {
+        return false;
+      }
+      key = container;
+    }
+    true
+  })
+}
+
+/// What `declaration` of `all` is a member of but the modules of its file, and its name (`MoveEnd::member`):
+/// `SearchAnswer.total` of a method of an `impl` of Rust, `helper` of a function of `mod tests` and of the same function
+/// at the top of `tests.rs`
+fn member_of(all: &[SpannedDeclaration], declaration: &SpannedDeclaration) -> String {
+  let form = &declaration.form;
+  let mut prefix = form.namespace.join(".");
+  let mut member: Vec<&str> = Vec::new();
+  for container in &form.containers {
+    prefix.push('.');
+    prefix.push_str(container);
+    if !all.iter().any(|other| other.form.kind == DeclKind::Module && other.form.key == prefix) {
+      member.push(container);
+    }
+  }
+  member.push(&form.name);
+  member.join(".")
+}
+
+/// The code of the header of the innermost `impl` of `impls` that holds `lines`: what a member of it moves with
+/// (`MoveEnd::within`)
+fn within_of(impls: &[ImplBlock], lines: &Range<u32>) -> Option<u64> {
+  impls
+    .iter()
+    .filter(|block| block.holds(lines))
+    .min_by_key(|block| block.close - block.header.0)
+    .map(|block| block.code)
+}
+
+/// The files a module `mod name;` of Rust declared at the top of the file `path` reads: `name.rs` and `name/mod.rs`
+/// beside a `lib.rs`, a `main.rs` or a `mod.rs`, else in the directory of the name of the file
+fn module_files(path: &str, name: &str) -> [String; 2] {
+  let (directory, file) = path.rsplit_once('/').map_or(("", path), |(directory, file)| (directory, file));
+  let stem = file.strip_suffix(".rs").unwrap_or(file);
+  let base = match (directory, stem) {
+    (_, "lib" | "main" | "mod") => directory.to_string(),
+    ("", _) => stem.to_string(),
+    _ => format!("{directory}/{stem}"),
+  };
+  let join = |rest: String| if base.is_empty() { rest } else { format!("{base}/{rest}") };
+  [join(format!("{name}.rs")), join(format!("{name}/mod.rs"))]
 }
 
 /// The declarations of `declarations` that no other one holds: none of the containers of the key of such a declaration
@@ -874,6 +1025,13 @@ fn group_fingerprint(slices: &[UnitSlice]) -> String {
   digest(parts)
 }
 
+/// What the blocks of a unit remove where they remove nothing else (`SourceFile::removed_alone`): declarations of the old
+/// side alone, by their pairs, and lines of no declaration, by their code
+struct Removed {
+  pairs: Vec<usize>,
+  lines: Vec<Code>,
+}
+
 /// A source file of the pair whose two sides have text and known declarations
 struct SourceFile<'a, 't> {
   pair_file: &'a PairFile<'a>,
@@ -892,6 +1050,8 @@ struct SourceFile<'a, 't> {
   free: Vec<[Range<u32>; 2]>,
   /// The renames this file declares that the index has not proven (`DeclaredRenames`)
   renames: Option<&'a FileRenames>,
+  /// The paths of the files of the pair, before and after the commits
+  paths: &'a HashSet<&'a str>,
 }
 
 impl SourceFile<'_, '_> {
@@ -966,32 +1126,63 @@ impl SourceFile<'_, '_> {
   }
 
   /// The declarations of the old side alone, each the outermost one of its unit, by their pairs, that `blocks` of a
-  /// unit `removed` remove where they remove nothing else (`moved_across`, "The place a move left"): the old side
-  /// without the lines of the blocks is, but for its blank lines, the old side without the lines of those declarations,
-  /// from the first line either takes to the last. So a deletion the comparison slid by a line the declaration shares
-  /// with the code beside it (its closing brace in place of the one before it) is the declaration all the same. `None`
-  /// where the blocks add a line, remove another one, or none of a declaration of that side alone
-  fn removed_alone(&self, pairs: &[Paired], folded: &[usize], blocks: &[UnitBlock]) -> Option<Vec<usize>> {
-    if blocks.is_empty() || blocks.iter().any(|block| block.new_start < block.new_end) {
+  /// unit remove where they remove nothing else (`moved_across`, "The place a move left"): the old side without the
+  /// lines of the blocks is, but for its blank lines, the old side without the lines of those declarations, of the
+  /// members folded into them (`folded`: the methods of an `impl` of a removed type) and of the modules and `impl`
+  /// blocks they emptied (`emptied`), from the first line either takes to the last. So a deletion the comparison slid
+  /// by a line the declaration shares with the code beside it (its closing brace in place of the one before it) is the
+  /// declaration all the same. A block may add the lines that declare where the code went (`skeleton`: `mod x;` of a
+  /// file of the pair, `pub use x::*;`, imports, blank lines) and nothing else. `None` where the blocks add another
+  /// line, remove another one, or none of a declaration of that side alone
+  fn removed_alone(&self, pairs: &[Paired], folded: &[usize], blocks: &[UnitBlock], emptied: &[Range<u32>], impls: &[ImplBlock]) -> Option<Removed> {
+    if blocks.is_empty() || !blocks.iter().all(|block| (block.new_start..block.new_end).all(|line| self.skeleton(line))) {
       return None;
     }
-    let removed: Vec<(usize, Range<u32>)> = pairs
-      .iter()
-      .enumerate()
-      .filter(|&(pair, paired)| paired.after.is_none() && folded[pair] == pair)
-      .filter_map(|(pair, paired)| {
-        let lines = lines_of(&self.before.declarations[paired.before?]);
-        blocks
-          .iter()
-          .any(|block| block.old_start < lines.end && lines.start < block.old_end)
-          .then_some((pair, lines))
-      })
-      .collect();
-    let start = blocks.iter().map(|block| block.old_start).chain(removed.iter().map(|(_, lines)| lines.start)).min()?;
-    let end = blocks.iter().map(|block| block.old_end).chain(removed.iter().map(|(_, lines)| lines.end)).max()?;
+    let overlaps = |lines: &Range<u32>, other: &Range<u32>| lines.start < other.end && other.start < lines.end;
+    let old_blocks: Vec<Range<u32>> = blocks.iter().map(|block| block.old_start..block.old_end).collect();
+    let in_blocks = |lines: &Range<u32>| old_blocks.iter().any(|block| overlaps(lines, block));
+    let one_side = |paired: &Paired| paired.before.filter(|_| paired.after.is_none());
+    // the declarations of the old side alone that the blocks change: the outermost ones whole, the members folded into
+    // one (the methods of an `impl` of a removed type) where the blocks change them, each held by its outermost one
+    let mut removed: Vec<usize> = Vec::new();
+    let (mut whole, mut parts): (Vec<Range<u32>>, Vec<Range<u32>>) = (Vec::new(), Vec::new());
+    for (pair, paired) in pairs.iter().enumerate() {
+      let Some(before) = one_side(paired) else { continue };
+      let lines = lines_of(&self.before.declarations[before]);
+      if !in_blocks(&lines) {
+        continue;
+      }
+      if !removed.contains(&folded[pair]) {
+        removed.push(folded[pair]);
+      }
+      if folded[pair] == pair { whole.push(lines) } else { parts.push(lines) }
+    }
     if removed.is_empty() {
       return None;
     }
+    // what goes with them where the blocks are: the modules and the `impl` blocks they emptied, the imports and the
+    // names passed on beside them
+    let imports = self.before.import_lines.iter().map(|span| span.start.saturating_sub(1)..span.end);
+    let exported = self.before.exported_lines.iter().map(|&line| line.saturating_sub(1)..line);
+    let mut gone: Vec<Range<u32>> = whole.iter().cloned().chain(parts).chain(emptied.iter().cloned()).chain(imports).chain(exported).collect();
+    // the lines the blocks remove of no declaration, no module and no `impl` that are items of their own (a call of a
+    // macro at the top of the file): they go where a file the commits add holds them (`MoveEnds::lines_left`)
+    let declared = |line: u32| {
+      self.before.declarations.iter().any(|declaration| lines_of(declaration).contains(&line)) || impls.iter().any(|block| (block.header.0..=block.close).contains(&line))
+    };
+    let mut lines: Vec<Code> = Vec::new();
+    for line in old_blocks.iter().flat_map(Clone::clone) {
+      if gone.iter().any(|lines| lines.contains(&line)) || declared(line) {
+        continue;
+      }
+      if let Some(code) = self.sides.item_line_code(false, line) {
+        lines.push(code);
+        gone.push(line..line + 1);
+      }
+    }
+    // the lines the comparison reads: the blocks, and each outermost declaration whole
+    let start = old_blocks.iter().chain(&whole).map(|lines| lines.start).min()?;
+    let end = old_blocks.iter().chain(&whole).map(|lines| lines.end).max()?;
     let text = self.old.text(&(start..end));
     // the lines of the old side from `start` to `end` that are no blank and that `gone` does not take
     let kept = |gone: &dyn Fn(u32) -> bool| -> Vec<&str> {
@@ -1001,9 +1192,71 @@ impl SourceFile<'_, '_> {
         .map(|(_, text)| *text)
         .collect()
     };
-    let without_blocks = kept(&|line| blocks.iter().any(|block| (block.old_start..block.old_end).contains(&line)));
-    let without_declarations = kept(&|line| removed.iter().any(|(_, lines)| lines.contains(&line)));
-    (without_blocks == without_declarations).then(|| removed.into_iter().map(|(pair, _)| pair).collect())
+    let without_blocks = kept(&|line| old_blocks.iter().any(|block| block.contains(&line)));
+    let without_declarations = kept(&|line| gone.iter().any(|lines| lines.contains(&line)));
+    (without_blocks == without_declarations).then_some(Removed { pairs: removed, lines })
+  }
+
+  /// Whether the line `line` of the new side (of the diffs) declares where code went and nothing else (`removed_alone`):
+  /// a blank line, a line of an import or of one that passes names on (`pub use x::*;`), or of a module of Rust declared
+  /// `mod x;` whose file is a file of the pair (`outline_module`)
+  fn skeleton(&self, line: u32) -> bool {
+    self.new.text(&(line..line + 1)).iter().all(|text| text.trim().is_empty())
+      || self.after.import_lines.iter().any(|span| (span.start.saturating_sub(1)..span.end).contains(&line))
+      || self.after.exported_lines.contains(&(line + 1))
+      || self
+        .after
+        .declarations
+        .iter()
+        .any(|declaration| lines_of(declaration).contains(&line) && self.outline_module(declaration))
+  }
+
+  /// Whether `declaration` of the new side is a module of Rust declared at the top of its file whose file is a file of
+  /// the pair (`module_files`): `mod files;` beside a new `files.rs`
+  fn outline_module(&self, declaration: &SpannedDeclaration) -> bool {
+    declaration.form.kind == DeclKind::Module
+      && declaration.form.containers.is_empty()
+      && module_files(self.pair_file.file.path, &declaration.form.name)
+        .iter()
+        .any(|path| self.paths.contains(path.as_str()))
+  }
+
+  /// The lines of the modules and the `impl` blocks of Rust (`impls`) of the old side that the commits emptied: every
+  /// declaration inside one is of the old side alone, and each of its lines is of its header (to the line of its name,
+  /// or of its opening brace), its closing line, a declaration in it, an import, an `impl` in it, or holds no code
+  fn emptied(&self, pairs: &[Paired], of_before: &HashMap<usize, usize>, impls: &[ImplBlock]) -> Vec<Range<u32>> {
+    let all = &self.before.declarations;
+    let modules = all.iter().filter(|declaration| declaration.form.kind == DeclKind::Module).map(|declaration| {
+      let span = lines_of(declaration);
+      let name = self.old.of_git(declaration.form.line.saturating_sub(1)..declaration.form.line).start;
+      (span.clone(), span.start..name + 1)
+    });
+    let blocks = impls.iter().map(|block| (block.header.0..block.close + 1, block.header.0..block.header.1));
+    let imports: Vec<Range<u32>> = self.before.import_lines.iter().map(|span| span.start.saturating_sub(1)..span.end).collect();
+    modules
+      .chain(blocks)
+      .filter(|(span, header)| {
+        let members: Vec<usize> = (0..all.len())
+          .filter(|&at| {
+            let lines = lines_of(&all[at]);
+            span.start <= lines.start && lines.end <= span.end && lines != *span
+          })
+          .collect();
+        let alone = |at: &usize| of_before.get(at).is_some_and(|&pair| pairs[pair].after.is_none());
+        if members.is_empty() || !members.iter().all(alone) {
+          return false;
+        }
+        span.clone().all(|line| {
+          header.contains(&line)
+            || line + 1 == span.end
+            || members.iter().any(|&at| lines_of(&all[at]).contains(&line))
+            || imports.iter().any(|import| import.contains(&line))
+            || impls.iter().any(|block| (block.header.0..block.header.1).contains(&line) || block.close == line)
+            || self.sides.no_code_on(false, line..line + 1)
+        })
+      })
+      .map(|(span, _)| span)
+      .collect()
   }
 
   /// The text of `lines` (of the diffs) of a side as a fingerprint reads it, the same after a change of whitespace
@@ -1180,9 +1433,15 @@ impl SourceFile<'_, '_> {
     }
 
     // the place before the commits of each declaration of that side alone (`MoveEnds::left`), by its pair; and the
-    // units `removed` whose blocks remove declarations alone, with those declarations by their pairs (`MovedOut`)
+    // units whose blocks remove declarations alone, with those declarations by their pairs (`MovedOut`)
     let mut left_ends: HashMap<usize, usize> = HashMap::new();
-    let mut removing: Vec<(String, Vec<usize>)> = Vec::new();
+    let mut removing: Vec<(String, Removed)> = Vec::new();
+    let (old_impls, new_impls) = (self.sides.impls(false), self.sides.impls(true));
+    let emptied = if pairs.iter().any(|paired| paired.after.is_none()) {
+      self.emptied(&pairs, &of_before, &old_impls)
+    } else {
+      Vec::new()
+    };
     for (pair, unit_blocks) in declared {
       let paired = pairs[pair];
       let before = paired.before.map(|index| &self.before.declarations[index]);
@@ -1231,23 +1490,39 @@ impl SourceFile<'_, '_> {
       let form = &declaration.form;
       let id = format!("declaration:{}:{}:{}", pair_file.file.path, form.key, declaration.signature);
       // a declaration of one side alone, a place it may have moved from or to (`moved_across`)
+      let span = lines_of(declaration);
+      let new_side = after.is_some();
       if let UnitKind::Added | UnitKind::Removed = kind
-        && let Some(code) = self.sides.code(after.is_some(), lines_of(declaration))
+        && let Some(code) = self.sides.code(new_side, span.clone())
       {
+        let (all, impls) = if new_side {
+          (&self.after.declarations, &new_impls)
+        } else {
+          (&self.before.declarations, &old_impls)
+        };
         let end = MoveEnd {
           unit: Some(id.clone()),
           path: pair_file.file.path.to_string(),
           line: form.line,
           name: form.name.clone(),
+          member: member_of(all, declaration),
           code,
+          loose: self.sides.code_but_reach(new_side, span.clone()),
+          within: within_of(impls, &span),
         };
-        let index = cut.moves.push(after.is_some(), end);
-        if after.is_none() {
+        let index = cut.moves.push(new_side, end);
+        if !new_side {
           left_ends.insert(pair, index);
-          if let Some(removed) = self.removed_alone(&pairs, &folded, &unit_blocks) {
+          if let Some(removed) = self.removed_alone(&pairs, &folded, &unit_blocks, &emptied, &old_impls) {
             removing.push((id.clone(), removed));
           }
         }
+      }
+      // a module declared `mod x;` where the code it holds went, whose block removes that code: the place it left
+      if after.is_some_and(|after| self.outline_module(after))
+        && let Some(removed) = self.removed_alone(&pairs, &folded, &unit_blocks, &emptied, &old_impls)
+      {
+        removing.push((id.clone(), removed));
       }
       let fingerprint = digest([form.key.as_str(), declaration.signature.as_str(), old_text.as_str(), new_text.as_str()]);
       // a unit without a block follows the block that changed its lines
@@ -1285,10 +1560,14 @@ impl SourceFile<'_, '_> {
     }
     // a slice of the move alone, once each declaration it removes moved: each of them a place of a move
     for (unit, removed) in removing {
-      let ends: Option<Vec<usize>> = removed.iter().map(|pair| left_ends.get(pair).copied()).collect();
-      if let Some(ends) = ends {
+      let held: Option<Vec<Held>> = removed.pairs.iter().map(|pair| left_ends.get(pair).copied().map(Held::End)).collect();
+      if let Some(mut held) = held {
+        for code in removed.lines {
+          held.push(Held::Line(cut.moves.lines_left.len()));
+          cut.moves.lines_left.push(code);
+        }
         let path = pair_file.file.path.to_string();
-        cut.moves.out.push(MovedOut { unit: Some(unit), path, ends });
+        cut.moves.out.push(MovedOut { unit: Some(unit), path, held });
       }
     }
 

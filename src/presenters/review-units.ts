@@ -115,11 +115,12 @@ function renamedHeading(name: string, from: RenamedFrom, changed: string | null)
 /**
  * The heading of a declaration moved whole between two files (`ReviewUnit.movedFrom`, `movedTo`, decided in Rust):
  * "moved from Orders.kt" where it stands now, "moved to Report.kt" where it left, the other file by its name among the
- * files of the review (`nameOf`); the note of the move at the start of its block names its line alone
- * (`HeadingPart.moved`)
+ * files of the review (`nameOf`), and ", visibility changed" where its reach changed with it (`MovedPlace.visibility`);
+ * the note of the move at the start of its block names its line alone (`HeadingPart.moved`)
  */
-function movedHeading(name: string, direction: "from" | "to", path: string, nameOf: (path: string) => string): HeadingPart {
-  return { name, words: `moved ${direction} ${nameOf(path)}`, moved: { path } }
+function movedHeading(name: string, direction: "from" | "to", path: string, nameOf: (path: string) => string, visibility = false): HeadingPart {
+  const changed = visibility ? ", visibility changed" : ""
+  return { name, words: `moved ${direction} ${nameOf(path)}${changed}`, moved: { path } }
 }
 
 /** The names of a list cut as every list of the app is (`joinNames`, `cutList`): those it names and the rest it counts */
@@ -170,9 +171,9 @@ export function formatUnitHeading(unit: ReviewUnit, nameOf: (path: string) => st
       }
       return named(unit.renamed == null ? "body changed" : formatRenamedUses(unit.renamed))
     case "added":
-      return unit.movedFrom == null ? named("new") : movedHeading(name, "from", unit.movedFrom.path, nameOf)
+      return unit.movedFrom == null ? named("new") : movedHeading(name, "from", unit.movedFrom.path, nameOf, unit.movedFrom.visibility === true)
     case "removed":
-      return unit.movedTo == null ? named("removed") : movedHeading(name, "to", unit.movedTo.path, nameOf)
+      return unit.movedTo == null ? named("removed") : movedHeading(name, "to", unit.movedTo.path, nameOf, unit.movedTo.visibility === true)
     case "newFile":
       return named("new file")
     case "deletedFile":

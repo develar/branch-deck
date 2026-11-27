@@ -6561,9 +6561,10 @@ recipe MUST be a field or value of that output.
 - **GIVEN** a plan whose `removed` unit has `moved_to` and whose `added` unit has `moved_from`, the two places of the
   same code ([Review Units](../../branch/review-units/spec.md#requirement-units-a-declaration-moved-whole-to-another-file-says-where))
 - **WHEN** an agent reviews it by the skill
-- **THEN** it reads the move once, at its new place, and does not report the removal as a loss
-- **AND** the recipe names `moved_to` and `moved_from` as the output spells them, which the test checks against its
-  schema
+- **THEN** it reads the move once, at its new place, and does not report the removal as a loss, nor a slice
+  `moved_out`, and reads the `visibility` of a place as a reach that changed with the move
+- **AND** the recipe names `moved_to`, `moved_from`, `visibility` and `moved_out` as the output spells them, which the
+  test checks against its schema, and says that the mechanical `moved` is a reorder inside one file
   [@test] crates/bd-cli/src/agent_help_test.rs (`the_skill_reviews_by_the_reading_and_the_units_of_the_plan_and_passes_only_the_mechanical_ones`)
 
 ### Requirement: `brd install`: The details of an output belong in the help of the binary

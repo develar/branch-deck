@@ -513,7 +513,7 @@ unchanged.
 
 ### Requirement: In `brd`: `brd review-plan` prints the concerns
 
-`brd review-plan` MUST print `concerns` (`"schema": 43`): per concern its `id`, `name`, its `change` (since 34), its
+`brd review-plan` MUST print `concerns` (`"schema": 44`): per concern its `id`, `name`, its `change` (since 34), its
 `parts` (`unit`, `path`, `blocks`), its `paths`, its `elsewhere` (since 8), its `evidence` (`kind`: `uses`, `group`,
 `token`, `rest`, its `detail` and `joins`, the most joins first) and its `fingerprint`.
 

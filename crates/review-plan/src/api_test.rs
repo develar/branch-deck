@@ -1087,3 +1087,16 @@ fn a_form_shows_the_types_as_written_and_a_change_marks_its_parameters() {
   let line = &load.after.as_ref().unwrap().lines[0];
   assert_eq!((line.head.as_str(), line.tail.as_str()), ("fun load(", ")"));
 }
+
+/// openspec/specs/branch/review-plan/spec.md, "API surface": a public function of Rust whose place `mod open;` takes,
+/// the function in `open.rs` and no `pub use` of it, is removed, never a change of its form into a module
+#[test]
+fn a_function_replaced_by_a_module_of_its_name_is_removed() {
+  let repo = TestRepo::new();
+  let open = "pub fn open(path: &str) -> u8 {\n    path.len() as u8\n}\n";
+  let base = repo.create_commit("Add lib", "src/lib.rs", &format!("pub fn other() {{}}\n\n{open}"));
+  let head = repo.create_commit_with_files("Open apart", &[("src/lib.rs", "mod open;\n\npub fn other() {}\n"), ("src/open.rs", open)]);
+  let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
+  let entries: Vec<(ApiChangeKind, &str, &str)> = plan.api.iter().map(|change| (change.kind, change.name.as_str(), change.path.as_str())).collect();
+  assert_eq!(entries, [(ApiChangeKind::Removed, "open", "src/lib.rs"), (ApiChangeKind::Added, "open", "src/open.rs")]);
+}
