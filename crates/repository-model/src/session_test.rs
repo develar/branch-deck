@@ -23,7 +23,9 @@ use domain_types::next_step::{NextStep, StepBlocker, StepRow};
 use domain_types::patronus::{
   BranchReviewReadiness, EstimateBasis, FinishedRobot, PatronusAvailability, PatronusRobot, PatronusRobotStatus, PatronusRobotsResult, ReviewReadiness, RobotEstimate,
 };
-use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState, ViewerPermission};
+use domain_types::pull_request::{
+  KnownMergedPullRequests, MergedPullRequest, MergedPullRequests, PullRequestAvailability, PullRequestsResult, Reviewer, ReviewerState, ViewerPermission,
+};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{LandingNeeds, PatronusView};
 use domain_types::session::{
@@ -78,6 +80,10 @@ struct Script {
 #[derive(Default)]
 struct ScriptedHost {
   scripts: Mutex<VecDeque<Script>>,
+  /// Each run asks the merged pull requests of the session, as a check that conflicts does, and records the revision
+  /// they answered
+  asks_merged: Mutex<bool>,
+  merged_asked: Mutex<Vec<Option<u64>>>,
   inputs: Mutex<Option<SyncInputs>>,
   runs: Mutex<u32>,
   checks: Mutex<u32>,
@@ -231,9 +237,19 @@ impl SessionHost for ScriptedHost {
     inputs
   }
 
-  fn run(&self, _key: &SessionKey, _opened: WorktreeEpoch, reporter: RunReporter) -> SyncRun {
+  fn run(&self, _key: &SessionKey, _opened: WorktreeEpoch, merged: Arc<dyn MergedPullRequests>, reporter: RunReporter) -> SyncRun {
     *self.runs.lock().unwrap() += 1;
-    let script = self.scripts.lock().unwrap().pop_front().expect("a script for every run");
+    if *self.asks_merged.lock().unwrap() {
+      // as the update check of a sync whose replay conflicts asks them
+      let revision = merged.merged_since(0).map(|known| known.revision);
+      self.merged_asked.lock().unwrap().push(revision);
+    }
+    let script = self
+      .scripts
+      .lock()
+      .unwrap()
+      .pop_front()
+      .unwrap_or_else(|| panic!("a script for every run, run {}", *self.runs.lock().unwrap()));
     self.reporters.lock().unwrap().push(reporter.clone());
     let sent_at = Arc::clone(&self.sent_at);
     Box::pin(async move {
@@ -3701,4 +3717,57 @@ async fn a_warm_first_sync_that_leaves_the_tips_of_the_frame_changes_every_subje
     "the view over the frame changed every subject"
   );
   assert_eq!(*host.needs_computed.lock().unwrap(), 0, "the needs of the frame answer its tips");
+}
+
+/// A listing of `acme/monorepo` with the merged pull request #9 of `auth`
+fn merged_listing() -> PullRequestsResult {
+  PullRequestsResult {
+    merged_pull_requests: vec![MergedPullRequest {
+      number: 9,
+      head_ref_name: "user/virtual/auth".to_owned(),
+      head_ref_oid: "1".repeat(40),
+      merge_commit: "2".repeat(40),
+      merge_author_email: Some("1+user@users.noreply.github.com".to_owned()),
+      merged_at: 1_700_000_500,
+    }],
+    ..approved_listing(None)
+  }
+}
+
+/// The run of a session pairs with the merged pull requests of its listing as it began. A listing with others than
+/// those the update check of the last run asked (a conflict) syncs again, once, so the header decides on the facts a
+/// click on Update would; a check that asked nothing syncs nothing on a listing
+#[tokio::test]
+async fn a_listing_with_other_merged_pull_requests_syncs_again_when_the_last_check_asked_them() {
+  let host = Arc::new(ScriptedHost::default());
+  *host.asks_merged.lock().unwrap() = true;
+  // inputs that stay: an open after a run that ended runs nothing
+  host.set_inputs(1);
+  let (sessions, _clock) = scripted(&host);
+  let (key, _window) = synced_window(&sessions, &host, "/repo", auth_built()).await;
+  assert_eq!(*host.merged_asked.lock().unwrap(), [None], "no listing stands yet");
+
+  host.push(auth_built(), Ok(report(false, &[])));
+  let ticket = sessions.begin(&key).await.unwrap();
+  sessions.apply_facts(&key, ticket, FactResult::PullRequests(merged_listing())).await.unwrap();
+  // an open joins the run in flight, or answers that nothing changed
+  sessions.sync(&key, SyncReason::Open).wait().await.unwrap();
+  let revision = KnownMergedPullRequests::new(merged_listing().merged_pull_requests).revision;
+  assert_eq!((host.runs(), host.merged_asked.lock().unwrap().clone()), (2, vec![None, Some(revision)]));
+
+  // the same merged ones again: nothing to check again
+  let ticket = sessions.begin(&key).await.unwrap();
+  sessions.apply_facts(&key, ticket, FactResult::PullRequests(merged_listing())).await.unwrap();
+  let answer = sessions.sync(&key, SyncReason::Open).wait().await.unwrap();
+  assert_eq!((host.runs(), answer.outcome), (2, SyncOutcome::Unchanged));
+
+  // a session whose checks ask nothing syncs nothing on a listing
+  let host = Arc::new(ScriptedHost::default());
+  host.set_inputs(1);
+  let (sessions, _clock) = scripted(&host);
+  let (key, _window) = synced_window(&sessions, &host, "/other", auth_built()).await;
+  let ticket = sessions.begin(&key).await.unwrap();
+  sessions.apply_facts(&key, ticket, FactResult::PullRequests(merged_listing())).await.unwrap();
+  let answer = sessions.sync(&key, SyncReason::Open).wait().await.unwrap();
+  assert_eq!((host.runs(), answer.outcome), (1, SyncOutcome::Unchanged));
 }

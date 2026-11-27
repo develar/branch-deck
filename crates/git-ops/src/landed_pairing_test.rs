@@ -51,12 +51,12 @@ fn a_walk_reads_the_mark_the_author_and_the_identity_of_each_commit() {
 }
 
 /// A commit of `f.txt` with `changes` at `time`: two commits of one subject at one time share a `CommitKey`
-fn at(message: &str, changes: &[(usize, &str)], time: i64) -> HistoryCommit {
+pub(crate) fn at(message: &str, changes: &[(usize, &str)], time: i64) -> HistoryCommit {
   HistoryCommit::new(message, &[("f.txt", &numbered_lines(changes))]).at(time)
 }
 
 /// A repository whose `master` has `f.txt`, with the branches `upstream` and `local` at it, `local` checked out
-fn sides() -> TestRepo {
+pub(crate) fn sides() -> TestRepo {
   let (repo, _) = TestRepo::with_history(&[HistoryCommit::new("Initial", &[("f.txt", &numbered_lines(&[])), ("bin.dat", "\0one")])]);
   repo.git(&["branch", "upstream"]);
   repo.git(&["checkout", "-q", "-b", "local"]);
@@ -69,7 +69,9 @@ fn pairings(repo: &TestRepo) -> (LandedPairing, LandedPairing) {
   in_scope(repo, |scope| {
     let reads = read_landed(repo.git_executor(), repo.path_str(), scope).unwrap();
     let before = pair_before_replay(repo.git_executor(), repo.path_str(), &reads).unwrap();
-    let all = pair_after_conflict(repo.git_executor(), repo.path_str(), scope, &reads, before.pairing.clone(), &before.paths).unwrap();
+    let all = pair_after_conflict(repo.git_executor(), repo.path_str(), scope, &reads, before.pairing.clone(), &before.paths, None)
+      .unwrap()
+      .pairing;
     assert_eq!(all, pair_landed(repo.git_executor(), repo.path_str(), scope).unwrap());
     (all, before.pairing)
   })
@@ -93,7 +95,7 @@ fn commit_by_another_author(repo: &TestRepo, message: &str, changes: &[(usize, &
 }
 
 /// `f` of the scope of `local` onto `upstream`
-fn in_scope<R>(repo: &TestRepo, f: impl FnOnce(LandedScope<'_>) -> R) -> R {
+pub(crate) fn in_scope<R>(repo: &TestRepo, f: impl FnOnce(LandedScope<'_>) -> R) -> R {
   let head = repo.rev_parse("local").unwrap();
   let upstream_head = repo.rev_parse("upstream").unwrap();
   let base = repo.git(&["merge-base", &head, &upstream_head]);
@@ -445,7 +447,7 @@ fn change_and_rework(repo: &TestRepo, rework: &str) -> Vec<String> {
 }
 
 /// The squash of a pull request on `upstream`, as GitHub writes it: authored at the merge, ` (#1)` after the title
-fn squash(repo: &TestRepo, commit: HistoryCommit) -> String {
+pub(crate) fn squash(repo: &TestRepo, commit: HistoryCommit) -> String {
   repo.commit_history("refs/heads/upstream", &[commit]).remove(0)
 }
 
@@ -623,7 +625,7 @@ fn the_candidates_by_changed_lines_read_one_diff_and_none_without_a_set_of_paths
       let reads = read_landed(repo.git_executor(), repo.path_str(), scope).unwrap();
       let before = pair_before_replay(repo.git_executor(), repo.path_str(), &reads).unwrap();
       let git = counting();
-      pair_after_conflict(&git, repo.path_str(), scope, &reads, before.pairing, &before.paths).unwrap();
+      pair_after_conflict(&git, repo.path_str(), scope, &reads, before.pairing, &before.paths, None).unwrap();
       processes(&git)
     })
   };

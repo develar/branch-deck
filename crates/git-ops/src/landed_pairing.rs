@@ -8,7 +8,8 @@
 //!   (`walk_commits_by_authors`, `ids_by_key`)
 //! - the pairing of an update (`pair_before_replay`: the twins of `pair_twins`, then `with_same_patch_by_authors`;
 //!   `with_patch_identical` after a conflict; all of them `pair_landed`): a ladder of proofs (`LandedProof`), one to
-//!   one, on the logs of the landed report (`LandedReads`); the pairs by identity alone are candidates
+//!   one, on the logs of the landed report (`LandedReads`); the pairs by identity alone are candidates, after a conflict
+//!   also those by changed lines (`landed_by_lines`) and by merged pull request (`landed_by_pull_request`)
 //! - the patch ids: `same_changes` of commit pairs without context, `pair_by_patch_id` and `patch_identical` with it
 //! - the interdiff of a candidate and its twin (`interdiffs`): what a drop of the candidate loses
 //! - the changed lines of a commit as one id (`change_ids`), whatever its parent: the interdiff of a review
@@ -17,10 +18,12 @@ use crate::autosquash_targets::fixups_by_target;
 use crate::commit_list::parse_single_commit;
 use crate::commit_utils::COMMIT_RECORD_FORMAT;
 use crate::landed_by_lines::with_candidates_by_changed_lines;
+use crate::landed_by_pull_request::{MergedAsk, with_candidates_by_pull_request};
 use crate::merge_tree_output::parse_merge_tree_batch;
 use crate::resolve_check::MAX_REPORTED_LINES;
 use anyhow::{Result, anyhow, bail};
 use domain_types::commit::Commit;
+use domain_types::pull_request::MergedPullRequests;
 use domain_types::upstream_commit::UpstreamCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
@@ -536,15 +539,17 @@ pub fn present_by_patch_id(git_executor: &GitCommandExecutor, repo_path: &str, u
 
 /// A local commit with a counterpart upstream that nothing proves (`CandidateBy`), so it is never left out by itself: by
 /// its identity (an amend after the push, a robot that folded its fixups in, an independent fix), or after a conflict by
-/// the changed lines of the set of commits it starts (the squash of a pull request). A resolve session keeps it in its
-/// state: the round of each commit of its unit offers `--landed`
+/// the changed lines of the set of commits it starts (the squash of a pull request) or by the merged pull request that
+/// pushed its unit. A resolve session keeps it in its state: the round of each commit of its unit offers `--landed`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LandedCandidate {
   pub commit: String,
-  /// The upstream commit with its `CommitKey`, or with the changed lines of the unit
+  /// The upstream commit with its `CommitKey`, with the changed lines of the unit, or the merge commit of the pull request
+  /// that pushed the unit
   pub upstream: String,
   /// The later local commits it landed with, oldest first, that no proof left out: by its identity its fixups
-  /// (`autosquash_targets`), as a robot that autosquashes folds them in; by changed lines the other commits of its set
+  /// (`autosquash_targets`), as a robot that autosquashes folds them in; by changed lines the other commits of its set; by
+  /// pull request the other commits the pull request pushed
   #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "fixups")]
   pub landed_with: Vec<String>,
   #[serde(default, skip_serializing_if = "CandidateBy::is_key")]
@@ -561,6 +566,10 @@ pub enum CandidateBy {
   /// After a conflict: the changed lines of its unit, summed in order, equal those of the upstream commit
   /// (`landed_by_lines`), under another key, e.g. a pull request squashed by GitHub
   ChangedLines,
+  /// After a conflict: GitHub merged the pull request of this number, which pushed the unit, as the upstream commit
+  /// (`landed_by_pull_request`), whatever its lines and its author, e.g. a squash with an edit of the review or under a
+  /// noreply address
+  PullRequest(u32),
 }
 
 impl CandidateBy {
@@ -582,7 +591,7 @@ impl LandedCandidate {
   }
 
   /// Whether leaving out the commit alone is a set to try: by its identity, a fixup made after the push may be what its
-  /// upstream commit lacks; by changed lines only the whole unit equals it
+  /// upstream commit lacks; by changed lines or by pull request only the whole unit is it
   fn may_land_alone(&self) -> bool {
     self.by == CandidateBy::Key && !self.landed_with.is_empty()
   }
@@ -642,12 +651,12 @@ impl LandedPairing {
 }
 
 /// Pair the local commits of `scope` with the upstream commits since the merge base (`LandedPairing`): the pairing
-/// before the replay (`pair_before_replay`), then the pairing after a conflict (`pair_after_conflict`), the pairing of an
-/// update whose replay conflicted.
+/// before the replay (`pair_before_replay`), then the pairing after a conflict (`pair_after_conflict`) without the merged
+/// pull requests, the pairing of an update whose replay conflicted.
 pub fn pair_landed(git_executor: &GitCommandExecutor, repo_path: &str, scope: LandedScope<'_>) -> Result<LandedPairing> {
   let reads = read_landed(git_executor, repo_path, scope)?;
   let before = pair_before_replay(git_executor, repo_path, &reads)?;
-  pair_after_conflict(git_executor, repo_path, scope, &reads, before.pairing, &before.paths)
+  Ok(pair_after_conflict(git_executor, repo_path, scope, &reads, before.pairing, &before.paths, None)?.pairing)
 }
 
 /// The sets of paths that commits change against their first parents (`changed_path_sets`), by commit
@@ -671,9 +680,18 @@ pub fn pair_before_replay(git_executor: &GitCommandExecutor, repo_path: &str, re
   Ok(BeforeReplay { pairing, paths })
 }
 
+/// The pairing after a conflict (`pair_after_conflict`) and what it asked of the merged pull requests
+#[derive(Debug, Clone)]
+pub struct AfterConflict {
+  pub pairing: LandedPairing,
+  /// `None` when no local commit was left that nothing took: nothing was asked
+  pub asked: Option<MergedAsk>,
+}
+
 /// The pairing of an update whose replay conflicted, after the pairing before it (`pairing`, with the `paths` it read,
-/// `BeforeReplay`): the commits of the same patch by any author (`with_patch_identical`), then the candidates by the
-/// changed lines of a set of commits (`landed_by_lines::with_candidates_by_changed_lines`)
+/// `BeforeReplay`): the commits of the same patch by any author (`with_patch_identical`), the candidates by the
+/// changed lines of a set of commits (`landed_by_lines::with_candidates_by_changed_lines`), then the candidates by the
+/// merged pull requests that `merged` answers (`landed_by_pull_request::with_candidates_by_pull_request`)
 pub fn pair_after_conflict(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -681,9 +699,12 @@ pub fn pair_after_conflict(
   reads: &LandedReads,
   pairing: LandedPairing,
   paths: &PathSets,
-) -> Result<LandedPairing> {
+  merged: Option<&dyn MergedPullRequests>,
+) -> Result<AfterConflict> {
   let pairing = with_patch_identical(git_executor, repo_path, scope, reads, pairing)?;
-  with_candidates_by_changed_lines(git_executor, repo_path, reads, paths, pairing)
+  let pairing = with_candidates_by_changed_lines(git_executor, repo_path, reads, paths, pairing)?;
+  let (pairing, asked) = with_candidates_by_pull_request(git_executor, repo_path, scope, reads, merged, pairing)?;
+  Ok(AfterConflict { pairing, asked })
 }
 
 /// Pair each local commit of `reads` with the upstream commit of its `CommitKey`, one to one, the oldest local commit of
@@ -1280,4 +1301,4 @@ fn raw_changes(git_executor: &GitCommandExecutor, repo_path: &str, commits: impl
 
 #[cfg(test)]
 #[path = "landed_pairing_test.rs"]
-mod landed_pairing_test;
+pub(crate) mod landed_pairing_test;

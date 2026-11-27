@@ -11,8 +11,10 @@ use crate::commit_utils::{blob_id, file_blob_id};
 use crate::commit_writer::{WrittenCommits, current_committer, write_notes_to_refs};
 use crate::crlf::conversions;
 use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock, IndexLocked};
+use crate::landed_by_pull_request::MergedAsk;
 use crate::landed_pairing::{
-  BeforeReplay, LandedCandidate, LandedDrop, LandedPairing, LandedReads, LandedScope, PathSets, pair_after_conflict, pair_before_replay, read_landed_with_paths, units_already_in,
+  AfterConflict, BeforeReplay, LandedCandidate, LandedDrop, LandedPairing, LandedReads, LandedScope, PathSets, pair_after_conflict, pair_before_replay, read_landed_with_paths,
+  units_already_in,
 };
 use crate::lfs::WorktreeMove;
 use crate::paths::{COMMIT_FORMAT, ChangedPath, MAX_ATTRIBUTED_FILES, changed_paths, commits_touching, parse_commits};
@@ -27,6 +29,7 @@ use crate::worktree_update::{IndexLeftBehind, WorktreeUpdate, dry_run_worktree_u
 use anyhow::{Result, anyhow, bail};
 use bstr::ByteSlice;
 use domain_types::error::ErrorCode;
+use domain_types::pull_request::MergedPullRequests;
 use domain_types::update_project::{AppliedUpdate, FirstConflict, KeptLostBinding, UpdateCheck, UpdateCommit, UpdateKind, UpdateLostBinding, UpdateResolvedCommit, UpdateState};
 
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -79,12 +82,47 @@ pub enum CheckPurpose {
 /// then, while it still conflicts, the candidates by identity, e.g. those a
 /// Safe Push robot pushed with their fixups folded in (the target alone then adds other content than the upstream has).
 /// A candidate is left out only if the result provably keeps its change.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LandedLookup {
+#[derive(Clone, Copy)]
+pub enum LandedLookup<'a> {
   /// None: the check leaves nothing out
   Off,
   /// The ladder of `landed_pairing::pair_landed`, its twins before the replay
   ByKey,
+  /// `ByKey`, and after a conflict the candidates by the merged pull requests the lookup answers
+  /// (`landed_by_pull_request`)
+  WithPullRequests(PullRequestLookup<'a>),
+}
+
+/// Where the pairing after a conflict asks for the merged pull requests: the app's session, one search of `brd update`
+#[derive(Clone, Copy)]
+pub struct PullRequestLookup<'a> {
+  pub merged: &'a dyn MergedPullRequests,
+}
+
+impl<'a> LandedLookup<'a> {
+  /// `WithPullRequests` of `merged`, `ByKey` without one
+  #[must_use]
+  pub fn by_key_with(merged: Option<&'a dyn MergedPullRequests>) -> Self {
+    merged.map_or(Self::ByKey, |merged| Self::WithPullRequests(PullRequestLookup { merged }))
+  }
+
+  /// The merged pull requests the pairing asks after a conflict
+  fn merged(self) -> Option<&'a dyn MergedPullRequests> {
+    match self {
+      Self::WithPullRequests(lookup) => Some(lookup.merged),
+      Self::Off | Self::ByKey => None,
+    }
+  }
+}
+
+impl std::fmt::Debug for LandedLookup<'_> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str(match self {
+      Self::Off => "Off",
+      Self::ByKey => "ByKey",
+      Self::WithPullRequests(_) => "WithPullRequests",
+    })
+  }
 }
 
 /// A fixed committer date for preview replays
@@ -262,6 +300,12 @@ impl UpdatePlan {
     self.landed.as_deref().map(|landed| &landed.paths)
   }
 
+  /// What the pairing after the conflict of the check asked of the merged pull requests (`MergedAsk`); `None` when it
+  /// asked nothing: the landed report of a preview is kept by it too (`sync_core::landed::find_landing`)
+  pub fn landed_asked(&self) -> Option<MergedAsk> {
+    self.landed.as_deref().and_then(|landed| landed.asked)
+  }
+
   /// HEAD after the replay of a clean rebase without the signature pass, with the identities of the local commits: the
   /// copies a caller reads the lost bindings of (`trial_check::lost_bindings::replay_lost_bindings`); `None` for any
   /// other check
@@ -407,7 +451,7 @@ pub fn check_update(
   repo_path: &str,
   upstream: UpstreamRef<'_>,
   purpose: CheckPurpose,
-  landed: LandedLookup,
+  landed: LandedLookup<'_>,
   resolve: ResolveMode,
 ) -> Result<UpdatePlan> {
   check_update_with_signing(git_executor, repo_path, upstream, purpose, landed, resolve, Signing::Off)
@@ -420,7 +464,7 @@ pub fn check_update_with_signing(
   repo_path: &str,
   upstream: UpstreamRef<'_>,
   purpose: CheckPurpose,
-  landed: LandedLookup,
+  landed: LandedLookup<'_>,
   resolve: ResolveMode,
   signing: Signing,
 ) -> Result<UpdatePlan> {
@@ -432,7 +476,13 @@ pub fn check_update_with_signing(
 /// local changes on the paths the update writes are left to `recheck_update`, which the caller runs under the lock, and
 /// `apply_update` refuses the plan before it
 #[instrument(skip(git_executor))]
-pub fn check_update_before_lock(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, landed: LandedLookup, resolve: ResolveMode) -> Result<UpdatePlan> {
+pub fn check_update_before_lock(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  upstream: UpstreamRef<'_>,
+  landed: LandedLookup<'_>,
+  resolve: ResolveMode,
+) -> Result<UpdatePlan> {
   check_update_before_lock_with_signing(git_executor, repo_path, upstream, landed, resolve, Signing::Off)
 }
 
@@ -442,7 +492,7 @@ pub fn check_update_before_lock_with_signing(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
   upstream: UpstreamRef<'_>,
-  landed: LandedLookup,
+  landed: LandedLookup<'_>,
   resolve: ResolveMode,
   signing: Signing,
 ) -> Result<UpdatePlan> {
@@ -456,7 +506,7 @@ fn check_update_read(
   repo_path: &str,
   upstream: UpstreamRef<'_>,
   purpose: CheckPurpose,
-  landed: LandedLookup,
+  landed: LandedLookup<'_>,
   resolve: ResolveMode,
   blocks: Blocks,
   signing: Signing,
@@ -524,7 +574,7 @@ pub fn check_update_of(
   checked: CheckedHead<'_>,
   upstream: UpstreamRef<'_>,
   purpose: CheckPurpose,
-  landed: LandedLookup,
+  landed: LandedLookup<'_>,
   resolve: ResolveMode,
 ) -> Result<UpdatePlan> {
   check_update_with(git_executor, repo_path, checked, upstream, purpose, landed, resolve, Blocks::Now, Signing::Off)
@@ -537,7 +587,7 @@ fn check_update_with(
   checked: CheckedHead<'_>,
   upstream: UpstreamRef<'_>,
   purpose: CheckPurpose,
-  landed: LandedLookup,
+  landed: LandedLookup<'_>,
   resolve: ResolveMode,
   blocks: Blocks,
   signing: Signing,
@@ -599,10 +649,13 @@ fn check_update_with(
     excluded: plan.excluded.clone(),
     resolve,
   };
+  // a replay whose pairing asked the merged pull requests holds while they answer alike
+  let merged = landed.merged();
+  let still = |outcome: &ReplayOutcome| outcome.landed().and_then(|landed| landed.asked).is_none_or(|asked| asked.answered_alike(merged));
   let (outcome, mut probe) = match purpose {
     CheckPurpose::Preview => {
       let (cached, probe) = preview_cache().get(&key);
-      let outcome = if let Some(outcome) = cached {
+      let outcome = if let Some(outcome) = cached.filter(still) {
         debug!("update check: the replay of this state is cached");
         outcome
       } else {
@@ -614,7 +667,7 @@ fn check_update_with(
     // doesn't replay again, and the sync after a conflicting click doesn't either
     CheckPurpose::Apply => {
       let (cached, probe) = preview_cache().get(&key);
-      if let Some(outcome @ ReplayOutcome::Conflict { .. }) = cached {
+      if let Some(outcome @ ReplayOutcome::Conflict { .. }) = cached.filter(still) {
         debug!("update check: the conflict of this state is cached");
         (outcome, probe)
       } else {
@@ -753,11 +806,13 @@ impl ReplayOutcome {
 }
 
 /// What the pairing of a check read that its landed report reads too: the commits of both sides and the sets of paths
-/// of those no twin took
+/// of those no twin took; and what its pairing after a conflict asked of the merged pull requests, by which a cached
+/// replay holds only while they answer alike
 #[derive(Debug)]
 struct PairingReads {
   reads: LandedReads,
   paths: PathSets,
+  asked: Option<MergedAsk>,
 }
 
 /// Replay the local commits onto the upstream (a fast-forward needs no replay) and list the paths HEAD's tree changes.
@@ -773,13 +828,13 @@ fn replay_outcome(
   plan: &UpdatePlan,
   kind: UpdateKind,
   purpose: CheckPurpose,
-  landed: LandedLookup,
+  landed: LandedLookup<'_>,
   resolve: ResolveMode,
 ) -> Result<ReplayOutcome> {
   let UpdateCheck { head, upstream_head, base, .. } = &plan.check;
   let mut resolved = Vec::new();
   let mut replay_plan = None;
-  let mut pairing_reads: Option<Arc<PairingReads>> = None;
+  let mut pairing_reads: Option<PairingReads> = None;
   let mut local_paths: Option<HashSet<String>> = None;
   let new_head = match kind {
     UpdateKind::FastForward => upstream_head.clone(),
@@ -796,11 +851,11 @@ fn replay_outcome(
         CheckPurpose::Apply => &[],
       };
       let twins = match landed {
-        LandedLookup::ByKey => {
+        LandedLookup::ByKey | LandedLookup::WithPullRequests(_) => {
           let (reads, paths) = read_landed_with_paths(git_executor, repo_path, landed_scope(plan))?;
           local_paths = Some(paths);
           let BeforeReplay { pairing, paths } = pair_before_replay(git_executor, repo_path, &reads)?;
-          pairing_reads = Some(Arc::new(PairingReads { reads, paths }));
+          pairing_reads = Some(PairingReads { reads, paths, asked: None });
           Some(pairing)
         }
         LandedLookup::Off => None,
@@ -818,8 +873,12 @@ fn replay_outcome(
         }
         new_head
       } else {
-        let pairing = match (twins, &pairing_reads) {
-          (Some(twins), Some(read)) => pair_after_conflict(git_executor, repo_path, landed_scope(plan), &read.reads, twins, &read.paths)?,
+        let pairing = match (twins, &mut pairing_reads) {
+          (Some(twins), Some(read)) => {
+            let AfterConflict { pairing, asked } = pair_after_conflict(git_executor, repo_path, landed_scope(plan), &read.reads, twins, &read.paths, landed.merged())?;
+            read.asked = asked;
+            pairing
+          }
           _ => unpaired(git_executor, repo_path, &revs)?,
         };
         let replay = ReplayPlan::of(pairing);
@@ -839,7 +898,7 @@ fn replay_outcome(
             Some(stopped) => stopped,
             None => find_first_conflict(git_executor, repo_path, upstream_head, &replay, env)?,
           };
-          return conflict_outcome(git_executor, repo_path, base, upstream_head, replay, index, &tip, pairing_reads);
+          return conflict_outcome(git_executor, repo_path, base, upstream_head, replay, index, &tip, pairing_reads.map(Arc::new));
         };
         replay_plan = Some(replay);
         new_head
@@ -854,7 +913,7 @@ fn replay_outcome(
     changed,
     resolved,
     plan: replay_plan,
-    landed: pairing_reads,
+    landed: pairing_reads.map(Arc::new),
     may_lose_bindings,
   })
 }

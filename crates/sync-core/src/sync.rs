@@ -29,6 +29,7 @@ use domain_types::branch_names::{BranchKind, managed_branch_kind, strip_branch_n
 use domain_types::commit::Commit;
 use domain_types::error::{ErrorCode, ErrorDetails, UnrelatedHistoryDetails};
 use domain_types::issue_navigation::IssueNavigationConfig;
+use domain_types::pull_request::MergedPullRequests;
 use domain_types::session::StoreTips;
 use domain_types::stack::{BlockReason, BranchStack, StackBlock, StackBranchUpdate};
 use domain_types::{BranchError, BranchOrigin, BranchSyncStatus, GroupedBranchInfo, ProgressReporter, SyncEvent, UnappliedBranchInfo};
@@ -107,6 +108,10 @@ pub struct SyncOptions {
   /// can't reach): a clean rebase whose replay loses a binding is a conflict in the header as at the click
   /// (`UpdatePlan::check_lost_bindings`); `None` checks no binding
   pub lost_bindings: Option<&'static dyn LostBindingRule>,
+  /// The merged pull requests the update check of the sync pairs with after a conflict (`CheckInputs::merged`): the
+  /// app's session passes those of its listing, so the header and the click decide on the same facts; `None` pairs
+  /// without them (`brd sync`)
+  pub merged_pull_requests: Option<Arc<dyn MergedPullRequests>>,
 }
 
 impl Default for SyncOptions {
@@ -122,6 +127,7 @@ impl Default for SyncOptions {
       test_patronus: None,
       lease: LeaseGuard::any(),
       lost_bindings: None,
+      merged_pull_requests: None,
     }
   }
 }
@@ -478,7 +484,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   detection_strategy: DetectionStrategy,
   archive_retention_days: u64,
   object_cache: &ObjectCache,
-  (lease, lost_bindings): (&LeaseGuard, Option<&'static dyn LostBindingRule>),
+  (lease, lost_bindings, merged_pull_requests): (&LeaseGuard, Option<&'static dyn LostBindingRule>, Option<Arc<dyn MergedPullRequests>>),
   progress: &P,
 ) -> Result<PreparedSync> {
   // the directories once: the guards find the markers of an operation in progress, the facts `FETCH_HEAD` and the
@@ -556,11 +562,13 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     let grouping = grouping.clone();
     let progress = progress.clone();
     let lease = lease.clone();
+    let merged = merged_pull_requests;
     move || {
       let inputs = CheckInputs {
         grouping: &grouping,
         resolve,
         lost_bindings,
+        merged: merged.as_deref(),
       };
       send_baseline_status(&git_executor, &repository_path, baseline_branch, known.as_ref(), inputs, &lease, &progress)
     }
@@ -1103,6 +1111,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     test_patronus,
     lease,
     lost_bindings,
+    merged_pull_requests,
   } = options;
   // every git process of the sync, its tasks included, is counted; the summary is logged at its end
   let git_executor = &git_executor.with_process_stats("sync");
@@ -1154,7 +1163,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
           detection_strategy,
           archive_retention_days,
           &object_cache,
-          (&lease, lost_bindings),
+          (&lease, lost_bindings, merged_pull_requests),
           progress,
         )
       }

@@ -49,7 +49,7 @@ use crate::facts::{
 };
 use crate::moved_remote::{FetchedRemote, MovedFetches};
 use crate::patronus_view::ContentMemo;
-use crate::pull_request_facts::{PullRequestSubject, PullRequestWrite, PushedHead};
+use crate::pull_request_facts::{PullRequestSubject, PullRequestWrite, PushedHead, SessionMergedPullRequests};
 use crate::readiness_facts::ReadinessDigest;
 use crate::review_readings::ReadAheadAnswer;
 use crate::session::{
@@ -65,7 +65,7 @@ use domain_policy::landing_route::rules_target;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing_route::LocalGitHub;
 use domain_types::patronus::{FinishedRobot, PatronusAvailability, PatronusRobot, PatronusRobotsResult};
-use domain_types::pull_request::{PullRequestAvailability, PullRequestReviewEvent, PullRequestsResult};
+use domain_types::pull_request::{MergedPullRequests, PullRequestAvailability, PullRequestReviewEvent, PullRequestsResult};
 use domain_types::repository_view::PatronusView;
 use domain_types::review_request::ReviewRequest;
 use domain_types::session::{
@@ -89,7 +89,7 @@ use sync_utils::timestamp::unix_now;
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
-use tracing::{Instrument, info_span, warn};
+use tracing::{Instrument, debug, info_span, warn};
 
 /// The least time between two patches of a running sync
 pub const PATCH_INTERVAL: Duration = Duration::from_millis(16);
@@ -508,6 +508,9 @@ struct Actor {
   held: Option<HeldEnd>,
   /// The check or the run in flight keeps the session alive
   in_flight: Option<Busy>,
+  /// The merged pull requests the last run began with (`SyncOptions::merged_pull_requests`), and whether its update
+  /// check asked them (`sync_for_merged`)
+  run_merged: Option<Arc<SessionMergedPullRequests>>,
   /// The messages handled so far (`Sessions::quiet`)
   handled: u64,
   /// The last fetch of each remote branch whose pull request showed a head it lacked
@@ -563,6 +566,7 @@ impl Actor {
       last_flush: None,
       held: None,
       in_flight: None,
+      run_merged: None,
       handled: 0,
       moved: MovedFetches::default(),
       frames,
@@ -904,6 +908,9 @@ impl Actor {
         let lists_pull_requests = matches!(result, FactResult::PullRequests(_));
         let lists_review_requests = matches!(result, FactResult::ReviewRequests(_));
         self.facts.apply(observation, result);
+        if lists_pull_requests {
+          self.sync_for_merged();
+        }
         if lists_review_requests {
           self.review_requests_listed();
         }
@@ -1207,6 +1214,20 @@ impl Actor {
     tracing::info!(worktree = %self.key.worktree, "The slot of the worktree holds another lease: the session opens anew for it once the run in flight ended");
     self.events.emit(&self.key, SessionEventKind::Closed);
     self.reopen_after_run = Some(waiter);
+  }
+
+  /// A listing of the pull requests whose merged ones differ from those the update check of the last run asked (after a
+  /// conflict, `landed_by_pull_request`): the check pairs with others now, so a sync checks again, as after a fetch
+  /// (`SyncReason::AfterRewrite`), and the header shows what a click on Update would do. A check that asked nothing,
+  /// e.g. a clean one, syncs nothing; the run it starts asks with the new ones, and a later listing with these asks no more
+  fn sync_for_merged(&mut self) {
+    let revision = self.facts.pull_requests.merged().map(|known| known.revision);
+    let Some(merged) = self.run_merged.as_ref().filter(|merged| merged.asked() && merged.revision() != revision) else {
+      return;
+    };
+    debug!(worktree = %self.key.worktree, was = ?merged.revision(), now = ?revision, "the merged pull requests the update check asked changed: a sync checks again");
+    self.run_merged = Some(Arc::new(SessionMergedPullRequests::new(self.facts.pull_requests.merged().cloned())));
+    self.request_sync(SyncReason::AfterRewrite, Waiter::unheard(&self.life));
   }
 
   fn decide_sync(&mut self, reason: SyncReason, waiter: Waiter) {
@@ -1600,6 +1621,9 @@ impl Actor {
     self.facts.table.started(self.life.now());
     self.flush();
     let (host, key, opened) = (Arc::clone(&self.host), self.key.clone(), self.life.opened_epoch());
+    // the merged pull requests of the listing as the run begins, which the update check of the run may ask
+    let merged = Arc::new(SessionMergedPullRequests::new(self.facts.pull_requests.merged().cloned()));
+    self.run_merged = Some(Arc::clone(&merged));
     tokio::spawn(
       async move {
         // before the sync: a commit made while it runs is a change the next focus syncs
@@ -1608,7 +1632,7 @@ impl Actor {
           None => read_inputs(Arc::clone(&host), key.clone()).await,
         };
         let reporter = RunReporter { run, mailbox: mailbox.clone() };
-        let result = host.run(&key, opened, reporter).await;
+        let result = host.run(&key, opened, merged, reporter).await;
         let _ = mailbox.send(Message::RunFinished {
           run,
           inputs,
@@ -1909,7 +1933,7 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
       .ok()
   }
 
-  fn run(&self, key: &SessionKey, opened: WorktreeEpoch, reporter: RunReporter) -> SyncRun {
+  fn run(&self, key: &SessionKey, opened: WorktreeEpoch, merged: Arc<dyn MergedPullRequests>, reporter: RunReporter) -> SyncRun {
     let (git, environment, key) = (self.git_of(key), Arc::clone(&self.environment), key.clone());
     Box::pin(async move {
       // the lease the session opened under, the lease of its view (`lease_began`): the sync writes the files of the lease
@@ -1933,6 +1957,7 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
         let began_under = began_under.clone();
         LeaseGuard::while_held(move || lease_writes(&began_under, &environment.epoch(&key)))
       };
+      options.merged_pull_requests = Some(merged);
       // the remote statuses and the landing report among the events are kept for the table
       let collector = RemoteStatusCollector::new(reporter);
       let reporter = environment.reporter(&key, Arc::new(collector.clone()));

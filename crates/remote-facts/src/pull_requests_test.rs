@@ -2,8 +2,8 @@ use crate::pull_requests::{
   CLOSED_SHOWN_DAYS, PULL_REQUESTS_QUERY, PULL_REQUESTS_QUERY_WITHOUT_STACKS, PULL_REQUESTS_QUERY_WITHOUT_TEAMS, closed_shown_search, list_pull_requests, parse_pull_requests,
 };
 use domain_types::pull_request::{
-  ChecksState, ChecksSummary, ClosedShownReview, PullRequestAvailability, PullRequestStackEntry, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState,
-  TokenSource, ViewerPermission,
+  ChecksState, ChecksSummary, ClosedShownReview, MergedPullRequest, PullRequestAvailability, PullRequestStackEntry, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer,
+  ReviewerState, TokenSource, ViewerPermission,
 };
 use git_executor::git_command_executor::GitCommandExecutor;
 use github::fake_github::{FakeAnswer, FakeRequest, start_fake_service};
@@ -423,6 +423,15 @@ async fn the_closed_shown_reviews_are_a_search_of_their_own_with_what_the_remote
   assert_eq!(result.closed_shown_reviews, None);
 }
 
+/// Lists the pull requests of `o/r`, GitHub's search answering `nodes`
+async fn list_nodes(nodes: Vec<serde_json::Value>) -> (PullRequestsResult, Vec<FakeRequest>) {
+  list(
+    FakeAnswer::ok(serde_json::json!({"data": {"repository": {"viewerPermission": "WRITE"}, "search": {"nodes": nodes}}})),
+    &repository("o", "r"),
+  )
+  .await
+}
+
 /// A pull request of a node of the search: `head` on the remote, `state`, updated at `updated_at`
 fn node(number: u32, head: &str, state: &str, updated_at: &str) -> serde_json::Value {
   serde_json::json!({"number": number, "title": format!("#{number}"), "url": format!("https://github.com/o/r/pull/{number}"), "state": state,
@@ -440,17 +449,69 @@ async fn the_pull_request_of_a_stack_branch_is_the_stacks_by_its_root() {
     node(12, "develar/stack/auth", "OPEN", "2026-10-14T09:30:00Z"),
     node(13, "alice/stack/auth", "OPEN", "2026-10-16T09:30:00Z"),
   ];
-  let (result, _) = list(
-    FakeAnswer::ok(serde_json::json!({"data": {"repository": {"viewerPermission": "WRITE"}, "search": {"nodes": nodes}}})),
-    &repository("o", "r"),
-  )
-  .await;
+  let (result, _) = list_nodes(nodes).await;
   let numbers = |pull_requests: &std::collections::BTreeMap<String, domain_types::pull_request::PullRequest>| {
     pull_requests.iter().map(|(name, pull_request)| (name.clone(), pull_request.number)).collect::<Vec<_>>()
   };
   assert_eq!(numbers(&result.pull_requests), vec![("auth".to_string(), 10)]);
   assert_eq!(numbers(&result.stack_pull_requests), vec![("auth".to_string(), 12)]);
   assert_eq!(result.stack_pull_requests["auth"].head_ref_name, "develar/stack/auth");
+}
+
+/// `node` merged at `merged_at` as `merge_commit` by `email`
+fn merged_node(number: u32, head: &str, merge_commit: &str, email: Option<&str>, merged_at: &str) -> serde_json::Value {
+  let mut node = node(number, head, "MERGED", merged_at);
+  node["mergedAt"] = serde_json::json!(merged_at);
+  node["mergeCommit"] = serde_json::json!({"oid": merge_commit, "author": {"email": email}});
+  node
+}
+
+/// Every merged pull request with a merge commit is kept besides the one pull request of each branch, which an open one
+/// wins, of any head; one Patronus closed (no merge commit) and a fork's are none
+#[test(tokio::test)]
+async fn the_listing_keeps_every_merged_pull_request_with_its_merge_commit_beside_the_open_one_of_its_branch() {
+  let mut patronus = node(14, "develar/virtual/ui", "CLOSED", "2026-10-13T09:30:00Z");
+  patronus["labels"] = serde_json::json!({"nodes": [{"name": "merged"}]});
+  patronus["mergeCommit"] = serde_json::Value::Null;
+  let mut fork = merged_node(15, "develar/virtual/auth", "5555555555555555555555555555555555555555", None, "2026-10-12T09:30:00Z");
+  fork["isCrossRepository"] = serde_json::json!(true);
+  let nodes = vec![
+    node(10, "develar/virtual/auth", "OPEN", "2026-10-16T09:30:00Z"),
+    merged_node(
+      11,
+      "develar/virtual/auth",
+      "2222222222222222222222222222222222222222",
+      Some("1+develar@users.noreply.github.com"),
+      "2026-10-15T09:30:00Z",
+    ),
+    merged_node(12, "feature", "3333333333333333333333333333333333333333", None, "2026-10-14T09:30:00Z"),
+    patronus,
+    fork,
+  ];
+  let (result, requests) = list_nodes(nodes).await;
+  assert_eq!(result.pull_requests["auth"].number, 10);
+  assert_eq!(
+    result.merged_pull_requests,
+    [
+      MergedPullRequest {
+        number: 11,
+        head_ref_name: "develar/virtual/auth".to_string(),
+        head_ref_oid: "1111111111111111111111111111111111111111".to_string(),
+        merge_commit: "2222222222222222222222222222222222222222".to_string(),
+        merge_author_email: Some("1+develar@users.noreply.github.com".to_string()),
+        merged_at: 1_792_056_600,
+      },
+      MergedPullRequest {
+        number: 12,
+        head_ref_name: "feature".to_string(),
+        head_ref_oid: "1111111111111111111111111111111111111111".to_string(),
+        merge_commit: "3333333333333333333333333333333333333333".to_string(),
+        merge_author_email: None,
+        merged_at: 1_791_970_200,
+      },
+    ]
+  );
+  assert!(requests[0].json()["query"].as_str().unwrap().contains("mergedAt mergeCommit { oid author { email } }"));
 }
 
 #[test(tokio::test)]

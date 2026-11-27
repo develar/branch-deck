@@ -4,10 +4,13 @@
 
 use crate::resolve_session::unapply_branch_suggestion;
 use crate::update_project::update_project_test::{Setup, path, setup};
-use crate::update_project::{BdUpdate, UpdateOptions, UpdateProjectParams, update_and_resolve, update_project_core};
+use crate::update_project::{BdUpdate, UpdateOptions, UpdateProjectParams, update_and_resolve, update_project_core, update_project_with};
+use domain_types::pull_request::{KnownMergedPullRequests, MergedPullRequest, MergedPullRequests};
 use domain_types::update_project::{UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::LockWait;
+use std::fs;
+use std::sync::atomic::{AtomicU32, Ordering};
 use sync_core::lease_state::LeaseGuard;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::process_budget::{assert_processes, assert_signed_commits, counting, processes, with_added_processes};
@@ -50,6 +53,7 @@ fn app_update(git: &GitCommandExecutor, repo: &TestRepo, fetch: bool) -> UpdateP
       fetch,
       lease: LeaseGuard::any(),
       keep: Vec::new(),
+      pull_requests: None,
     },
     &|_| {},
     LockWait::default(),
@@ -158,6 +162,7 @@ fn a_bd_update_reads_the_generated_files_both_sides_changed() {
     onto: None,
     lease: &LeaseGuard::any(),
     keep: &[],
+    merged: None,
   };
   let BdUpdate::Update { result, regenerate, .. } = update_and_resolve(&git, path(&fixture.clone), options, None).unwrap() else {
     panic!("a clean update started a resolve session");
@@ -235,13 +240,23 @@ fn a_conflicting_update_pairs_its_commits_once() {
 /// reads the changed lines of the two and of the squash once (`diff-tree -p -U0`): one candidate. The replay without it
 /// is clean, and one `merge-tree` with one `rev-parse` tell that its change is already there; the move takes the
 /// upstream
+/// `setup` with `f.txt` on both sides, and on the clone `(feature) feat: change b` with its fixup that rewrote its line
+fn change_b_and_its_fixup() -> Setup {
+  let fixture = setup();
+  fixture.upstream.create_commit("Add f", "f.txt", "a\nb\nc\n");
+  fixture.clone.git(&["pull", "-q", "--ff-only"]);
+  fixture
+    .clone
+    .create_commit_with_timestamp("(feature) feat: change b", "f.txt", "a\nB1\nc\n", Some(1_700_000_100));
+  fixture
+    .clone
+    .create_commit_with_timestamp("(feature) fixup! feat: change b", "f.txt", "a\nB2\nc\n", Some(1_700_000_200));
+  fixture
+}
+
 #[test]
 fn a_conflicting_update_of_a_squashed_pull_request_reads_its_changed_lines_once() {
-  let Setup { upstream, clone } = setup();
-  upstream.create_commit("Add f", "f.txt", "a\nb\nc\n");
-  clone.git(&["pull", "-q", "--ff-only"]);
-  clone.create_commit_with_timestamp("(feature) feat: change b", "f.txt", "a\nB1\nc\n", Some(1_700_000_100));
-  clone.create_commit_with_timestamp("(feature) fixup! feat: change b", "f.txt", "a\nB2\nc\n", Some(1_700_000_200));
+  let Setup { upstream, clone } = change_b_and_its_fixup();
   upstream.create_commit("feat: change b (#1)", "f.txt", "a\nB2\nc\n");
   clone.git(&["fetch", "--quiet", "origin"]);
   let git = counting();
@@ -262,6 +277,106 @@ fn a_conflicting_update_of_a_squashed_pull_request_reads_its_changed_lines_once(
       ("remote", 1),
       ("replay", 1),
       ("rev-list", 4),
+      ("rev-parse", 6),
+      ("symbolic-ref", 4),
+      ("update-ref", 1),
+    ],
+  );
+}
+
+/// Merged pull requests that count how often a check asked them
+struct Counted {
+  merged: KnownMergedPullRequests,
+  asked: AtomicU32,
+}
+
+impl MergedPullRequests for Counted {
+  fn merged_since(&self, since: u32) -> Option<KnownMergedPullRequests> {
+    self.asked.fetch_add(1, Ordering::Relaxed);
+    self.merged.merged_since(since)
+  }
+}
+
+/// Update Project of `repo` after its fetch with the merged pull requests `merged` (`UpdateOptions::merged`)
+fn app_update_with(git: &GitCommandExecutor, repo: &TestRepo, merged: &dyn MergedPullRequests) -> UpdateProjectResult {
+  let lease = LeaseGuard::any();
+  let options = UpdateOptions {
+    fetch: false,
+    lock_wait: LockWait::default(),
+    onto: None,
+    lease: &lease,
+    keep: &[],
+    merged: Some(merged),
+  };
+  update_project_with(git, path(repo), options, &|_| {}).unwrap()
+}
+
+/// A clean update asks no merged pull requests: they are asked only after a conflict, so `brd update` makes no request
+/// of GitHub then, and the processes are those of `an_update_after_its_fetch`
+#[test]
+fn a_clean_update_asks_no_merged_pull_requests() {
+  let fixture = fetched_update();
+  let counted = Counted {
+    merged: KnownMergedPullRequests::new(Vec::new()),
+    asked: AtomicU32::new(0),
+  };
+  let git = counting();
+  let result = app_update_with(&git, &fixture.clone, &counted);
+  assert!(result.applied.is_some(), "{result:?}");
+  assert_eq!(counted.asked.load(Ordering::Relaxed), 0);
+  assert_processes(&git, UPDATE);
+}
+
+/// Update Project of branch-deck#284 after its fetch: the commit and the fixup of
+/// `a_conflicting_update_of_a_squashed_pull_request_reads_its_changed_lines_once`, which GitHub squashed under the noreply
+/// address of the user. No upstream commit since the merge base is of a local author, so the pairing reads no sets of
+/// paths, no patch id and no changed lines (three `diff-tree` and the `patch-id` fewer than there). The merged pull
+/// request is asked once: its merge commit, of an author the pairing did not read, is found in the upstream since the
+/// merge base by one `log` of that author, and what its head pushed by one `rev-list`: one candidate. The replay without
+/// it and the move are as there; the landed report reads the merge commit once more (`log --no-walk`), as it reads every
+/// upstream commit of another author
+#[test]
+fn a_conflicting_update_of_a_pull_request_squashed_under_a_noreply_address_reads_its_merge_commit_once() {
+  let Setup { upstream, clone } = change_b_and_its_fixup();
+  let noreply = "1+test@users.noreply.github.com";
+  fs::write(upstream.path().join("f.txt"), "a\nB2\nc\n").unwrap();
+  upstream.git(&["add", "f.txt"]);
+  upstream
+    .git_executor()
+    .cmd(&["commit", "-q", "-m", "feat: change b (#1)"], path(&upstream))
+    .env(&[("GIT_AUTHOR_NAME", "Test User"), ("GIT_AUTHOR_EMAIL", noreply)])
+    .text()
+    .unwrap();
+  clone.git(&["fetch", "--quiet", "origin"]);
+  let counted = Counted {
+    merged: KnownMergedPullRequests::new(vec![MergedPullRequest {
+      number: 1,
+      head_ref_name: "user/virtual/feature".to_string(),
+      head_ref_oid: clone.head(),
+      merge_commit: upstream.head(),
+      merge_author_email: Some(noreply.to_string()),
+      merged_at: 1_700_000_900,
+    }]),
+    asked: AtomicU32::new(0),
+  };
+  let git = counting();
+  let result = app_update_with(&git, &clone, &counted);
+  assert!(result.applied.is_some(), "{result:?}");
+  assert_eq!(clone.head(), upstream.head());
+  assert_eq!(counted.asked.load(Ordering::Relaxed), 1);
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 1),
+      ("config", 2),
+      ("diff-tree", 1),
+      ("for-each-ref", 1),
+      ("log", 5),
+      ("merge-base", 2),
+      ("merge-tree", 1),
+      ("remote", 1),
+      ("replay", 1),
+      ("rev-list", 5),
       ("rev-parse", 6),
       ("symbolic-ref", 4),
       ("update-ref", 1),
@@ -313,6 +428,7 @@ fn lost_bindings_round(git: &GitCommandExecutor, repo: &TestRepo) -> crate::reso
     onto: None,
     lease: &LeaseGuard::any(),
     keep: &[],
+    merged: None,
   };
   let BdUpdate::Session(outcome) = update_and_resolve(git, path(repo), options, None).unwrap() else {
     panic!("no session");
@@ -371,11 +487,11 @@ fn the_fixup_of_a_lost_bindings_round_finishes_the_update() {
   clone.git(&["fetch", "--quiet", "origin"]);
   let view = lost_bindings_round(clone.git_executor(), &clone);
   let edit = &view.round.as_ref().unwrap().files[0].edit;
-  let content = std::fs::read_to_string(edit).unwrap();
+  let content = fs::read_to_string(edit).unwrap();
   let fixed = content
     .replace("import b.keep\n", "import b.keep\nimport b.rethrow\n")
     .replace("  private val name: String,\n", "  private val name: String,\n  private val backend: () -> Int,\n");
-  std::fs::write(edit, fixed).unwrap();
+  fs::write(edit, fixed).unwrap();
 
   let git = counting();
   let continued = crate::resolve_session::continue_resolve(
@@ -436,7 +552,7 @@ fn the_check_of_a_sync_whose_upstream_changes_no_local_file_asks_no_rule() {
 fn the_check_of_a_sync_reads_the_lost_bindings_once_per_state() {
   let (_upstream, clone) = TestRepo::upstream_and_clone_losing_bindings(false);
   clone.git(&["fetch", "--quiet", "origin"]);
-  let local_file = std::fs::File::options().write(true).open(clone.path().join("src/Launch.kt")).unwrap();
+  let local_file = fs::File::options().write(true).open(clone.path().join("src/Launch.kt")).unwrap();
   local_file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(5)).unwrap();
   let git = counting();
   crate::update_project::preview_update(&git, path(&clone), "origin/master").unwrap().unwrap();

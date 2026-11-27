@@ -27,6 +27,7 @@ use domain_types::upstream_commit::UpstreamCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::autosquash_targets::target_of_each_fixup;
 use git_ops::landed_by_lines::squashes_of_gone;
+use git_ops::landed_by_pull_request::MergedAsk;
 use git_ops::landed_pairing::{CommitKey, KeyedCommit, LandedCandidate, LandedDrop, LandedReads, PathSets, by_key, read_keyed, read_local, read_upstream};
 use git_ops::revs::{known_dirs, read_head};
 use git_ops::update_branch::UpdatePlan;
@@ -289,13 +290,16 @@ pub fn remaining_revs(new_head: &str, upstream_head: &str) -> Vec<String> {
   vec![new_head.to_string(), format!("^{upstream_head}")]
 }
 
-/// Identifies a preview: the same commits on both sides give the same landing
+/// Identifies a preview: the same commits on both sides give the same landing, with the same answer of the merged pull
+/// requests the pairing of the check asked (`UpdatePlan::landed_asked`), whose candidates name what a gone commit
+/// landed as
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LandingKey {
   head: String,
   upstream_head: String,
   replayed_head: Option<String>,
   grouping: GroupingInputs,
+  asked: Option<MergedAsk>,
 }
 
 /// Per repository, the landing of the last preview
@@ -323,6 +327,7 @@ pub fn find_landing(git_executor: &GitCommandExecutor, repo_path: &str, plan: &U
     upstream_head: check.upstream_head.clone(),
     replayed_head: replayed_head.map(str::to_string),
     grouping: grouping.clone(),
+    asked: plan.landed_asked(),
   };
   {
     let cache = landing_cache().lock().unwrap_or_else(std::sync::PoisonError::into_inner);

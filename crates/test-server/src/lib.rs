@@ -626,6 +626,8 @@ pub enum RepositoryTemplate {
   LandedUpstream,
   #[serde(rename = "landed_need")]
   LandedNeed,
+  #[serde(rename = "squashed_on_github")]
+  SquashedOnGitHub,
   #[serde(rename = "empty-non-git")]
   EmptyNonGit,
   #[serde(rename = "empty_git")]
@@ -706,6 +708,7 @@ impl RepositoryTemplate {
       Self::UpdateLostBindings => "update_lost_bindings",
       Self::LandedUpstream => "landed_upstream",
       Self::LandedNeed => "landed_need",
+      Self::SquashedOnGitHub => "squashed_on_github",
       Self::EmptyNonGit => "empty-non-git",
       Self::EmptyGit => "empty_git",
       Self::Bare => "bare",
@@ -1067,6 +1070,7 @@ pub async fn update_outside_the_app(axum::extract::Path(id): axum::extract::Path
     repository_path: path,
     fetch: false,
     keep: Vec::new(),
+    pull_requests: None,
   };
   let update = move || update_core::update_project::update_project_core(&git, &params, &|_| {}, history_rewrite::repository_lock::LockWait::default());
   let updated = tokio::task::spawn_blocking(in_current_span(update)).await;

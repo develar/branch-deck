@@ -12,6 +12,7 @@ use crate::repo_facts::{Baseline, Remotes, read_baseline, read_remotes};
 use crate::transfer_progress::TransferProgress;
 use anyhow::Result;
 use domain_types::landed::LandedBranch;
+use domain_types::pull_request::MergedPullRequests;
 use domain_types::update_project::UpdateCheck;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{current_branch, known_dirs};
@@ -218,17 +219,20 @@ pub fn check_baseline_update_checking(
     grouping: &grouping,
     resolve: config.resolve_mode()?,
     lost_bindings,
+    merged: None,
   };
   check_baseline_update_with(&git_executor, repo_path, baseline_branch, inputs)
 }
 
-/// What the update check of a sync takes besides the state: the issue groups, the resolve by words and the
-/// lost-binding rule
+/// What the update check of a sync takes besides the state: the issue groups, the resolve by words, the lost-binding
+/// rule, and the merged pull requests its pairing asks after a conflict (`LandedLookup::by_key_with`)
 #[derive(Clone, Copy)]
 pub struct CheckInputs<'a> {
   pub grouping: &'a GroupingInputs,
   pub resolve: ResolveMode,
   pub lost_bindings: Option<&'static dyn LostBindingRule>,
+  /// The merged pull requests of the session (`SyncOptions::merged_pull_requests`); `None` pairs without them
+  pub merged: Option<&'a dyn MergedPullRequests>,
 }
 
 /// The inputs of an update check from one read of the config: the issue groups, and the resolve by words (`branchdeck.resolveByWords`)
@@ -250,7 +254,7 @@ pub fn check_baseline_update_with(git_executor: &GitCommandExecutor, repo_path: 
     previous: None,
     local: false,
   };
-  let landed = LandedLookup::ByKey;
+  let landed = LandedLookup::by_key_with(inputs.merged);
   let mut plan = check_update(git_executor, repo_path, upstream_ref, CheckPurpose::Preview, landed, inputs.resolve)?;
   plan.check.fetched_at = last_fetch_time(git_executor, repo_path);
   check_lost_bindings(git_executor, repo_path, &mut plan, inputs.lost_bindings);
@@ -285,7 +289,7 @@ pub fn check_known_baseline_update(git_executor: &GitCommandExecutor, repo_path:
     head: &known.head,
     upstream_head: &known.upstream_head,
   };
-  let landed = LandedLookup::ByKey;
+  let landed = LandedLookup::by_key_with(inputs.merged);
   let mut plan = check_update_of(git_executor, repo_path, checked, upstream_ref, CheckPurpose::Preview, landed, inputs.resolve)?;
   plan.check.fetched_at = known.fetched_at;
   check_lost_bindings(git_executor, repo_path, &mut plan, inputs.lost_bindings);

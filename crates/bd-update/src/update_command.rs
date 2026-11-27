@@ -420,12 +420,18 @@ pub struct LandedDiffersOutput {
 
 /// The baseline commit with the identity of a local commit (the same author, author time and subject), or after a
 /// conflict with the changed lines of the commit and those it landed with (a pull request squashed under another
-/// identity), and how the two differ by their changed lines
+/// identity), or the commit GitHub merged the pull request that pushed them as, and how the two differ by their changed
+/// lines
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct LandedAsOutput {
   /// The baseline commit
   pub commit: String,
   pub subject: String,
+  /// What pairs the two
+  pub by: LandedBy,
+  /// With `by: pull_request`: the number of the merged pull request
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub pull_request: Option<u32>,
   /// The lines the local commit (with its fixups) changes and the baseline commit does not: what a drop loses. Per
   /// path at most 20 lines (`+` added, `-` removed), at most 20 paths
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -433,6 +439,19 @@ pub struct LandedAsOutput {
   /// The lines the baseline commit changes and the local commit does not, e.g. a fixup the robot folded in
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub upstream_only: Vec<PathLinesOutput>,
+}
+
+/// What pairs a local commit with the baseline commit of `landed_as` (`CandidateBy`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LandedBy {
+  /// The same author, author time and subject
+  Key,
+  /// The changed lines of the commit and those it landed with, summed, equal the baseline commit's
+  ChangedLines,
+  /// GitHub merged the pull request that pushed the commit and those it landed with as the baseline commit, whatever its
+  /// lines: `local_only` and `upstream_only` show an edit of the review
+  PullRequest,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -748,6 +767,7 @@ fn updated(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutp
     onto: None,
     lease: &context.lease,
     keep: &[],
+    merged: None,
   };
   let output = update_or_resolve(context, options, args.dir.as_deref())?;
   Ok(UpdateCommandOutput::Update(Box::new(output)))
@@ -776,6 +796,7 @@ pub fn update_lease_onto(context: &RepoContext, branch: &str, steps: &CommandSte
     onto: Some(branch),
     lease: &context.lease,
     keep: &[],
+    merged: None,
   };
   let mut output = update_or_resolve(context, options, None).map_err(|error| steps.bounded(error))?;
   if matches!(output.state, UpdateOutcome::Rebase | UpdateOutcome::FastForward) {
@@ -973,8 +994,15 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str, history: bool) -> 
 fn twin_hint(twin: &LandedTwin, commit: &str, round: u32, bd: &str, short: &ShortIds) -> String {
   let upstream = short.get(&twin.upstream);
   let (pairs, with) = match twin.by {
-    CandidateBy::Key => ("the identity of this commit", "this commit is a fixup of"),
-    CandidateBy::ChangedLines => ("the changed lines of this commit and the commits it landed with", "this commit landed with"),
+    CandidateBy::Key => (" with the identity of this commit".to_string(), "this commit is a fixup of"),
+    CandidateBy::ChangedLines => (
+      " with the changed lines of this commit and the commits it landed with".to_string(),
+      "this commit landed with",
+    ),
+    CandidateBy::PullRequest(number) => (
+      format!(", the commit GitHub merged pull request #{number} as, which pushed this commit and the commits it landed with"),
+      "this commit landed with",
+    ),
   };
   let with = if twin.commit == commit {
     String::new()
@@ -985,18 +1013,25 @@ fn twin_hint(twin: &LandedTwin, commit: &str, round: u32, bd: &str, short: &Shor
     "Ask the user, unless the user decided on this commit in `landed_differs` already. With a yes, run `next` with --user; with a no, resolve each file and run `{bd} update --continue --round {round}`"
   );
   if twin.is_same() {
-    format!("The baseline has {upstream} with {pairs}{with} and every line it changes: `next` drops it with --landed, which takes `onto` for every file")
+    format!("The baseline has {upstream}{pairs}{with} and every line it changes: `next` drops it with --landed, which takes `onto` for every file")
   } else if twin.interdiff.local_only.is_empty() {
-    format!("The baseline has {upstream} with {pairs}{with}, but not their change as it is: it moved or was taken back since, so a drop may lose it. {ask}")
+    format!("The baseline has {upstream}{pairs}{with}, but not their change as it is: it moved, was taken back or edited since, so a drop may lose it. {ask}")
   } else {
-    format!("The baseline has {upstream} with {pairs}{with}, but this commit changes lines that {upstream} lacks (`landed_as.local_only`): a drop loses them. {ask}")
+    format!("The baseline has {upstream}{pairs}{with}, but this commit changes lines that {upstream} lacks (`landed_as.local_only`): a drop loses them. {ask}")
   }
 }
 
 fn landed_as(twin: &LandedTwin, short: &ShortIds) -> LandedAsOutput {
+  let (by, pull_request) = match twin.by {
+    CandidateBy::Key => (LandedBy::Key, None),
+    CandidateBy::ChangedLines => (LandedBy::ChangedLines, None),
+    CandidateBy::PullRequest(number) => (LandedBy::PullRequest, Some(number)),
+  };
   LandedAsOutput {
     commit: short.get(&twin.upstream).to_string(),
     subject: twin.upstream_subject.clone(),
+    by,
+    pull_request,
     local_only: path_lines(&twin.interdiff.local_only),
     upstream_only: path_lines(&twin.interdiff.upstream_only),
   }

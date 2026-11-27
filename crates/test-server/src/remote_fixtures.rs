@@ -14,7 +14,7 @@ use domain_types::error::HolderTool;
 use domain_types::landing::{PlannedEffect, StartRoute};
 use domain_types::operation::{EffectRecord, EffectStatus, Intent, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Resource};
 use domain_types::patronus::{PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotProgress, PatronusRobotStatus, PatronusRobotsResult};
-use domain_types::pull_request::{GitHubUser, PullRequest, PullRequestAvailability, PullRequestsResult, TokenSource};
+use domain_types::pull_request::{GitHubUser, MergedPullRequest, PullRequest, PullRequestAvailability, PullRequestsResult, TokenSource};
 use domain_types::session::SyncReason;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::resolve_commit;
@@ -562,14 +562,27 @@ pub fn github_answers(fixture: &GitHubFixture) -> anyhow::Result<GitHubAnswers> 
 
 /// The pull requests of `result` as the fake holds them, after a check that the real parser reads the search of them
 /// back into `result` (`parse_pull_request_maps`): a fixture GitHub could not answer fails, e.g. one of another author
-/// or a requested reviewer listed before one who reviewed
+/// or a requested reviewer listed before one who reviewed, or a merge commit of no merged pull request of the fixture
 pub fn fixture_pulls(result: &PullRequestsResult, owner: &str, branch_prefix: &str) -> anyhow::Result<Vec<FakePull>> {
   let pull_requests: Vec<PullRequest> = result.pull_requests.values().chain(result.stack_pull_requests.values()).cloned().collect();
-  let data = serde_json::to_vec(&search_data(owner, GITHUB_VIEWER, pull_requests.clone()))?;
-  let (branches, stacks) = parse_pull_request_maps(&data, branch_prefix, owner)?;
+  let merges = fixture_merges(result);
+  let data = serde_json::to_vec(&search_data(owner, GITHUB_VIEWER, pull_requests.clone(), &merges))?;
+  let listed = parse_pull_request_maps(&data, branch_prefix, owner)?;
   anyhow::ensure!(
-    branches == result.pull_requests && stacks == result.stack_pull_requests,
-    "GitHub can't answer these pull requests: the real parser reads {branches:?} and the stacks {stacks:?}"
+    listed.branches == result.pull_requests && listed.stacks == result.stack_pull_requests,
+    "GitHub can't answer these pull requests: the real parser reads {:?} and the stacks {:?}",
+    listed.branches,
+    listed.stacks
+  );
+  // the merge commits, of the merged pull requests of the fixture only; their heads are those of the pull requests
+  let merge_of = |merged: &MergedPullRequest| (merged.number, merged.merge_commit.clone(), merged.merge_author_email.clone(), merged.merged_at);
+  let mut read: Vec<_> = listed.merged.iter().map(merge_of).collect();
+  let mut wanted: Vec<_> = result.merged_pull_requests.iter().map(merge_of).collect();
+  read.sort();
+  wanted.sort();
+  anyhow::ensure!(
+    read == wanted,
+    "GitHub can't answer these merge commits: the real parser reads {read:?}; each is of a merged pull request of the fixture"
   );
   Ok(
     pull_requests
@@ -584,6 +597,11 @@ pub fn fixture_pulls(result: &PullRequestsResult, owner: &str, branch_prefix: &s
       })
       .collect(),
   )
+}
+
+/// The merge commits of the merged pull requests of `result`, by number, as the fake answers them
+fn fixture_merges(result: &PullRequestsResult) -> std::collections::BTreeMap<u32, MergedPullRequest> {
+  result.merged_pull_requests.iter().map(|merged| (merged.number, merged.clone())).collect()
 }
 
 /// `branchdeck.githubRepository` of the test repository, the GitHub repository the app resolves (its `origin` is a
@@ -652,6 +670,7 @@ pub async fn set_pull_requests(Path(id): Path<String>, State(state): State<Arc<A
     patronus_replies: std::collections::BTreeMap::new(),
     pull_request_nodes: std::collections::BTreeMap::new(),
     merge_methods: fixture.result.merge_methods,
+    merges: fixture_merges(&fixture.result),
   };
   host.set_github(github, answers.signed_in);
   Ok(StatusCode::OK)

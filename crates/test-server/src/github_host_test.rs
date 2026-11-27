@@ -48,6 +48,7 @@ fn available(pull_requests: BTreeMap<String, PullRequest>, stack_pull_requests: 
     github_stacks: false,
     shown_reviews: BTreeMap::new(),
     closed_shown_reviews: None,
+    merged_pull_requests: Vec::new(),
   }
 }
 

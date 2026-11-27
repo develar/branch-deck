@@ -19,6 +19,22 @@ export interface PullRequestsFixture {
   stackPullRequests?: Record<string, PullRequest>
   /** The merge methods the repository allows; unset: every method, no auto-merge */
   mergeMethods?: MergeMethods
+  /**
+   * The commit GitHub merged each merged pull request of `pullRequests` as (`mergedAt`, `mergeCommit` of the listing,
+   * `MergedPullRequest` of Rust): what an update pairs the squash of a pull request by
+   */
+  mergedPullRequests?: MergedPullRequestFixture[]
+}
+
+/** A merged pull request of a fixture with the commit GitHub merged it as; its head is the pull request's own */
+export interface MergedPullRequestFixture {
+  number: number
+  headRefName: string
+  headRefOid: string
+  mergeCommit: string
+  mergeAuthorEmail?: string
+  /** Unix seconds */
+  mergedAt: number
 }
 
 /**

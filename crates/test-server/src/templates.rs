@@ -98,6 +98,7 @@ const TEMPLATES: &[(&str, TemplateBuild)] = &[
   ("update_lost_bindings", |path| templates::update_lost_bindings().build(path)),
   ("landed_upstream", |path| templates::landed_upstream().build(path)),
   ("landed_need", |path| templates::landed_need().build(path)),
+  ("squashed_on_github", |path| templates::squashed_on_github().build(path)),
   ("amend_changes", |path| templates::amend_changes().build(path)),
 ];
 

@@ -567,6 +567,7 @@ fn listed_at_tips(pull_requests: &[(&str, u32, &str)]) -> FactResult {
     github_stacks: false,
     shown_reviews: BTreeMap::new(),
     closed_shown_reviews: None,
+    merged_pull_requests: Vec::new(),
   })
 }
 
@@ -1243,6 +1244,7 @@ fn listed_shown(seq: u32, head: &str, state: domain_types::pull_request::Reviewe
   let result = PullRequestsResult {
     shown_reviews: BTreeMap::from([("auth".to_owned(), domain_policy::shown::shown_review(pull_request, &body))]),
     closed_shown_reviews: None,
+    merged_pull_requests: Vec::new(),
     ..result
   };
   (at(seq, 0, u64::from(seq)), FactResult::PullRequests(result))
@@ -1464,6 +1466,7 @@ fn listed_closed(seq: u32, closed_at: u32, asked: bool, open: bool) -> (Observat
   let result = PullRequestsResult {
     shown_reviews: if open { listing.shown_reviews } else { BTreeMap::new() },
     closed_shown_reviews: asked.then(|| vec![closed]),
+    merged_pull_requests: Vec::new(),
     ..listing
   };
   (observation, FactResult::PullRequests(result))

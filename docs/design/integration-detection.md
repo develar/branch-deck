@@ -169,12 +169,21 @@ flowchart TB
    earlier one, no local commit alone has its patch. The one smallest set of local commits of its author whose changed
    lines without context, summed in order, equal its own is its candidate (`landed_by_lines`): equal, not contained, as
    a line like `}` is in any large commit; the smallest, so a change and its revert or a commit made after the merge stay
-   out; unique, or none. A proven commit
+   out; unique, or none. A squash with an edit of the review of its own, or authored under the noreply address of the
+   user (an author the pairing never reads), is no such sum: last, after a conflict only, the exact fact of GitHub pairs
+   it (`landed_by_pull_request`): the commit GitHub merged a pull request as (`mergeCommit` of the session's listing, of
+   one search in `brd update`), with the local commits nothing took that its head pushed (the commits of the head the
+   upstream lacks, by id, key or mapping note), never a proof, and only when the merge commit is in the upstream since
+   the merge base and no twin of a local commit (a rebase merge, which the keys pair). No title heuristic (` (#N)`): a
+   number in a title proves nothing. Patronus closes its pull requests without a merge commit, so in a Patronus
+   repository only the lines pair a squash. A check that asked the merged pull requests holds in the cache of the
+   preview only while they answer alike. A proven commit
    landed as its upstream commit, also under a reworded message. When the replay conflicts because the robot folded
    fixups into their target, the update leaves the candidates out too if a `merge-tree` of each candidate's change
    proves nothing local is lost, into the result or, when the whole unit is left out, into the upstream (see "Update
    project" in [Git Operations](git-operations.md)); equal changed lines say nothing of their place, nor that the upstream
-   kept them, so a candidate by changed lines is dropped by `--landed` without the user only by that proof too. After a
+   kept them, and a pull request says nothing of the lines, so a candidate by changed lines or by pull request is dropped
+   by `--landed` without the user only by that proof too. After a
    replay, a gone commit of a candidate landed as its upstream commit, which names a squash. Where the check
    replayed the local commits onto the
    upstream, a commit `git replay` drops as empty is landed even without a key match: a fixup with its target, or a

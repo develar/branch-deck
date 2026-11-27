@@ -9,8 +9,8 @@ use anyhow::Result;
 use domain_policy::shown::{has_shown_prefix, listed_title, shown_review};
 use domain_types::branch_names::{BranchKind, reviewed_branch, strip_branch_namespace};
 use domain_types::pull_request::{
-  ChecksState, ChecksSummary, ClosedShownReview, MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestAvailability, PullRequestStackEntry, PullRequestState,
-  PullRequestsResult, ReviewDecision, Reviewer, ReviewerState, ShownReview, ViewerPermission,
+  ChecksState, ChecksSummary, ClosedShownReview, MergeMethod, MergeMethods, MergeStateStatus, MergedPullRequest, PullRequest, PullRequestAvailability, PullRequestStackEntry,
+  PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState, ShownReview, ViewerPermission,
 };
 use github::client::{GitHubError, GraphQlResponse};
 use github::service::{GitHubFailure, GitHubService, RequestKind};
@@ -44,7 +44,8 @@ fragment ListedPull on PullRequest {
   number title url state isDraft reviewDecision
   author { login }
   headRefName headRefOid baseRefName isCrossRepository updatedAt closedAt mergeStateStatus
-  autoMergeRequest { mergeMethod }",
+  autoMergeRequest { mergeMethod }
+  mergedAt mergeCommit { oid author { email } }",
       $stack,
       "
   headRepositoryOwner { login }
@@ -176,7 +177,11 @@ pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, r
         .repository
         .and_then(|repository| repository.viewer_permission)
         .and_then(|permission| ViewerPermission::parse(&permission));
-      let (pull_requests, stack_pull_requests) = to_pull_requests(data.search.map_or_default(|search| search.nodes), branch_prefix, &repository.owner);
+      let ListedPullRequests {
+        branches: pull_requests,
+        stacks: stack_pull_requests,
+        merged: merged_pull_requests,
+      } = to_pull_requests(data.search.map_or_default(|search| search.nodes), branch_prefix, &repository.owner);
       let shown_reviews = to_shown_reviews(data.shown.map_or_default(|search| search.nodes), branch_prefix, &repository.owner);
       let closed_shown_reviews = closed.then(|| to_closed_shown_reviews(data.closed.map_or_default(|search| search.nodes), branch_prefix, &repository.owner));
       PullRequestsResult {
@@ -191,6 +196,7 @@ pub async fn list_pull_requests(github: &GitHubService, repository_path: &str, r
         github_stacks,
         shown_reviews,
         closed_shown_reviews,
+        merged_pull_requests,
       }
     }
     Err(failure) => PullRequestsResult::unavailable(availability_of(failure)),
@@ -347,7 +353,7 @@ impl<T> Nodes<T> {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct GhPullRequest {
+pub(crate) struct GhPullRequest {
   /// None for a node of another type
   number: Option<u32>,
   #[serde(default)]
@@ -398,6 +404,21 @@ struct GhPullRequest {
   /// Of a shown review only (the `shown` search): when it was opened
   #[serde(default)]
   created_at: Option<String>,
+  /// Null until GitHub merged it; absent of a query that doesn't ask it
+  merged_at: Option<String>,
+  /// The commit GitHub merged it as; null of one it did not merge (Patronus closes its pull requests)
+  merge_commit: Option<GhMergeCommit>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct GhMergeCommit {
+  oid: Option<String>,
+  author: Option<GhGitActor>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct GhGitActor {
+  email: Option<String>,
 }
 
 /// A field of a node that a query may not ask: absent, null, or a value
@@ -526,31 +547,66 @@ pub(crate) struct GhReviewRequest {
 
 /// Parses the `data` of `PULL_REQUESTS_QUERY`: the pull requests of the virtual branches, see `to_pull_requests`
 pub fn parse_pull_requests(json: &[u8], branch_prefix: &str, owner: &str) -> serde_json::Result<BTreeMap<String, PullRequest>> {
-  Ok(parse_pull_request_maps(json, branch_prefix, owner)?.0)
+  Ok(parse_pull_request_maps(json, branch_prefix, owner)?.branches)
 }
 
-/// Parses the `data` of `PULL_REQUESTS_QUERY`: the pull requests of the virtual branches and of the stack branches, as
-/// `list_pull_requests` answers them (`to_pull_requests`)
-pub fn parse_pull_request_maps(json: &[u8], branch_prefix: &str, owner: &str) -> serde_json::Result<(BTreeMap<String, PullRequest>, BTreeMap<String, PullRequest>)> {
+/// What a listing reads of the search of the user's pull requests (`to_pull_requests`)
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ListedPullRequests {
+  /// By virtual branch name
+  pub branches: BTreeMap<String, PullRequest>,
+  /// By the root of a stack branch
+  pub stacks: BTreeMap<String, PullRequest>,
+  /// Every merged pull request with its merge commit, of any branch, newest first as GitHub answers them
+  pub merged: Vec<MergedPullRequest>,
+}
+
+/// Parses the `data` of `PULL_REQUESTS_QUERY`: the pull requests of the virtual branches and of the stack branches, and
+/// the merged ones, as `list_pull_requests` answers them (`to_pull_requests`)
+pub fn parse_pull_request_maps(json: &[u8], branch_prefix: &str, owner: &str) -> serde_json::Result<ListedPullRequests> {
   let data: PullRequestsData = serde_json::from_slice(json)?;
   Ok(to_pull_requests(data.search.map_or_default(|search| search.nodes), branch_prefix, owner))
 }
 
+/// Whether `gh` is a pull request of a branch pushed to `owner`'s repository: a fork's branch of the same name is not
+/// ours
+fn of_owner(gh: &GhPullRequest, owner: &str) -> bool {
+  let same_owner = gh
+    .head_repository_owner
+    .as_ref()
+    .and_then(|it| it.login.as_deref())
+    .is_some_and(|login| login.eq_ignore_ascii_case(owner));
+  same_owner && !gh.is_cross_repository
+}
+
+/// `gh` as a merged pull request with the commit GitHub merged it as (`mergedAt`, `mergeCommit`); `None` of one GitHub
+/// did not merge or names no merge commit of (a pull request Patronus closed)
+pub(crate) fn merged_pull_request(gh: &GhPullRequest) -> Option<MergedPullRequest> {
+  let merge_commit = gh.merge_commit.as_ref()?;
+  Some(MergedPullRequest {
+    number: gh.number?,
+    head_ref_name: gh.head_ref_name.clone(),
+    head_ref_oid: gh.head_ref_oid.clone(),
+    merge_commit: merge_commit.oid.clone().filter(|oid| !oid.is_empty())?,
+    merge_author_email: merge_commit.author.as_ref().and_then(|author| author.email.clone()).filter(|email| !email.is_empty()),
+    merged_at: gh.merged_at.as_deref().and_then(parse_rfc3339_timestamp)?,
+  })
+}
+
 /// The pull requests of virtual branches pushed to `owner`'s repository, by virtual branch name, and those of the stack
 /// branches (`{prefix}/stack/<root>`), by the root. A fork's branch of the same name is not ours. Of several pull
-/// requests of one branch, an open one wins over a merged one over a closed one, then the most recently updated.
-fn to_pull_requests(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str) -> (BTreeMap<String, PullRequest>, BTreeMap<String, PullRequest>) {
+/// requests of one branch, an open one wins over a merged one over a closed one, then the most recently updated. Every
+/// merged one with its merge commit is kept besides, before that pick, of any branch: an update pairs the squash of a
+/// pull request by it (`MergedPullRequest`)
+fn to_pull_requests(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str) -> ListedPullRequests {
   let mut branches: BTreeMap<String, PullRequest> = BTreeMap::new();
   let mut stacks: BTreeMap<String, PullRequest> = BTreeMap::new();
+  let mut merged: Vec<MergedPullRequest> = Vec::new();
   for gh in nodes {
-    let same_owner = gh
-      .head_repository_owner
-      .as_ref()
-      .and_then(|it| it.login.as_deref())
-      .is_some_and(|login| login.eq_ignore_ascii_case(owner));
-    if gh.is_cross_repository || !same_owner {
+    if !of_owner(&gh, owner) {
       continue;
     }
+    merged.extend(merged_pull_request(&gh));
     let (result, name) = if let Some(name) = strip_branch_namespace(&gh.head_ref_name, branch_prefix, BranchKind::Virtual) {
       (&mut branches, name.to_string())
     } else if let Some(root) = strip_branch_namespace(&gh.head_ref_name, branch_prefix, BranchKind::Stack) {
@@ -565,7 +621,7 @@ fn to_pull_requests(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str)
       result.insert(name, pull_request);
     }
   }
-  (branches, stacks)
+  ListedPullRequests { branches, stacks, merged }
 }
 
 /// The open shown reviews among `nodes` (the `shown` search), by the virtual branch each reviews: a head of exactly
@@ -574,15 +630,10 @@ fn to_pull_requests(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str)
 fn to_shown_reviews(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str) -> BTreeMap<String, ShownReview> {
   let mut reviews: BTreeMap<String, ShownReview> = BTreeMap::new();
   for mut gh in nodes {
-    let same_owner = gh
-      .head_repository_owner
-      .as_ref()
-      .and_then(|it| it.login.as_deref())
-      .is_some_and(|login| login.eq_ignore_ascii_case(owner));
     let Some(branch) = reviewed_branch(&gh.head_ref_name, branch_prefix).map(str::to_owned) else {
       continue;
     };
-    if gh.is_cross_repository || !same_owner {
+    if !of_owner(&gh, owner) {
       continue;
     }
     let body = gh.body.take().unwrap_or_default();
@@ -617,14 +668,7 @@ fn to_shown_reviews(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str)
 fn to_closed_shown_reviews(nodes: Vec<GhPullRequest>, branch_prefix: &str, owner: &str) -> Vec<ClosedShownReview> {
   nodes
     .into_iter()
-    .filter(|gh| {
-      let same_owner = gh
-        .head_repository_owner
-        .as_ref()
-        .and_then(|it| it.login.as_deref())
-        .is_some_and(|login| login.eq_ignore_ascii_case(owner));
-      same_owner && !gh.is_cross_repository
-    })
+    .filter(|gh| of_owner(gh, owner))
     .filter_map(|gh| {
       Some(ClosedShownReview {
         branch: reviewed_branch(&gh.head_ref_name, branch_prefix)?.to_owned(),

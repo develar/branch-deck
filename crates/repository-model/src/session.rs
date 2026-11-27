@@ -37,7 +37,7 @@ use domain_types::commit::CommitGroup;
 use domain_types::error::ApiError;
 use domain_types::landing::BaselinePush;
 use domain_types::patronus::{FinishedRobot, PatronusRobot};
-use domain_types::pull_request::PullRequestReviewEvent;
+use domain_types::pull_request::{MergedPullRequests, PullRequestReviewEvent};
 use domain_types::repository_view::PatronusView;
 use domain_types::review_request::{ReviewEntry, ReviewRequest};
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncAnswer, SyncReason, Version, ViewPatch};
@@ -210,8 +210,9 @@ pub trait SessionHost: Send + Sync + 'static {
   /// prefix, commits ahead that do not build on the baseline) answers its `ApiError` code (`operation_in_progress`,
   /// `detached_head`, `managed_branch`, `unrelated_history`); a run of a
   /// worktree that holds another lease than `opened` syncs nothing and answers `Ran::AnotherLease` (`lease_began`), and the
-  /// session opens anew for that lease
-  fn run(&self, key: &SessionKey, opened: WorktreeEpoch, reporter: RunReporter) -> SyncRun;
+  /// session opens anew for that lease. The update check of the sync pairs with `merged`, the merged pull requests of the
+  /// session as the run began (`SyncOptions::merged_pull_requests`)
+  fn run(&self, key: &SessionKey, opened: WorktreeEpoch, merged: Arc<dyn MergedPullRequests>, reporter: RunReporter) -> SyncRun;
 
   /// Whether a window of `key` that gains focus syncs (the app's `autoSyncOnFocus`)
   fn syncs_on_focus(&self, key: &SessionKey) -> bool;

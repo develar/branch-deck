@@ -28,6 +28,7 @@ use crate::witness::under_its_lease;
 use domain_types::error::ApiError;
 use domain_types::landing::PlannedEffect;
 use domain_types::operation::{EffectRecord, EffectStatus, FetchedBaseline, Intent, OperationEvent, OperationResult, OperationStep, Outcome, Plan, Resource};
+use domain_types::pull_request::KnownMergedPullRequests;
 use domain_types::rewrite::{UndoKind, UndoToken};
 use domain_types::session::SyncReason;
 use domain_types::update_project::{KeptLostBinding, UpdateProjectResult};
@@ -328,7 +329,10 @@ async fn update_under_guard(
   {
     return (Err(error), None);
   }
-  let updated = update(guard, key, lease, keep, hosts).await;
+  // the merged pull requests of the session's listing, copied before the core: its check after a conflict pairs with
+  // them, as the check of the sync before did
+  let merged = sessions.read(key, |_, facts| facts.pull_requests.merged().cloned()).await.flatten();
+  let updated = update(guard, key, lease, (keep, merged), hosts).await;
   let applied = updated.as_ref().is_ok_and(|result| result.applied.is_some());
   // the fetch moved the baseline also when nothing moved here: integration, the remote status, what landed
   let sync = (should_fetch || applied).then(|| sessions.sync(key, SyncReason::AfterRewrite));
@@ -381,17 +385,25 @@ fn undo_of(result: &UpdateProjectResult) -> Option<UndoToken> {
 }
 
 /// The check and the move of the update of the operation of `guard` (`update_project_core` without a fetch) on the
-/// blocking pool, the lock waited for as long as its holder lives (`StepWaiter`): its steps the check and the move
+/// blocking pool, the lock waited for as long as its holder lives (`StepWaiter`): its steps the check and the move. Its
+/// check pairs with the merged pull requests `merged` of the session after a conflict
 ///
 /// # Errors
 /// The core's failure as the host words it; `canceled` once the user stopped the wait for the lock
-async fn update(guard: &RunningGuard, key: &SessionKey, lease: &LeaseGuard, keep: &[KeptLostBinding], hosts: Hosts<'_>) -> Result<UpdateProjectResult, ApiError> {
+async fn update(
+  guard: &RunningGuard,
+  key: &SessionKey,
+  lease: &LeaseGuard,
+  (keep, merged): (&[KeptLostBinding], Option<KnownMergedPullRequests>),
+  hosts: Hosts<'_>,
+) -> Result<UpdateProjectResult, ApiError> {
   let (git, stepper) = (hosts.services.git(), guard.stepper());
   let params = UpdateProjectParams {
     repository_path: key.worktree.clone(),
     fetch: false,
     lease: lease.clone(),
     keep: keep.to_vec(),
+    pull_requests: merged,
   };
   let waiter = Arc::new(StepWaiter::new(guard, OperationStep::Updating));
   let core_waiter = Arc::clone(&waiter);

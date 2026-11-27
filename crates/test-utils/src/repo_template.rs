@@ -2061,6 +2061,11 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
     /// so the start of `flow` needs `codec` until an update fetches it (the landing needs; `docs/design/landing.md`,
     /// "Landing plan")
     LandedNeed,
+    /// GitHub squashed the pull request of `debug` (`Enable debug` and its fixup, pushed as
+    /// `user-name/virtual/debug`) into `Enable debug (#7)` under the noreply address of the user, the tip of
+    /// `origin/master`: no identity and no author of the local commits, so the replay of `Enable debug` conflicts until
+    /// the merged pull request pairs them (`SQUASHED_ON_GITHUB_AUTHOR`)
+    SquashedOnGitHub,
   }
 
   /// A clone whose `master` tracks `origin/master` of an upstream that has moved on. The upstream is a bare repository
@@ -2110,6 +2115,13 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
   pub const fn landed_need() -> UpdateTemplate {
     UpdateTemplate(UpdateScenario::LandedNeed)
   }
+
+  pub const fn squashed_on_github() -> UpdateTemplate {
+    UpdateTemplate(UpdateScenario::SquashedOnGitHub)
+  }
+
+  /// The author of the squash of `squashed_on_github`: the noreply address GitHub gives a user who keeps theirs private
+  pub const SQUASHED_ON_GITHUB_AUTHOR: &str = "1+test@users.noreply.github.com";
 
   /// The file of `flow` of `landed_need` that uses `Codec`
   pub const LANDED_NEED_USE: &str = "flow/src/main/kotlin/org/example/platform/landing/pipeline/codec/integration/FlowCodecIntegrationEntryPoint.kt";
@@ -2238,6 +2250,15 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
         UpdateScenario::LandedNeed => &[("Add the codec", CODEC_KT.0, CODEC_KT.1, 1704118500)],
         _ => &[],
       };
+      if scenario == UpdateScenario::SquashedOnGitHub {
+        // the squash at the merge, under the noreply address
+        commit_as(
+          &format!("Test User <{SQUASHED_ON_GITHUB_AUTHOR}>"),
+          "Enable debug (#7)",
+          &[("src/config.txt", "debug=verbose\n")],
+          (1704175900, 1704175900),
+        )?;
+      }
       for (message, path, content, author_time) in robot_commits {
         write(path, content)?;
         git(&["add", "--", path], None)?;
@@ -2272,6 +2293,20 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
         commit("(search) Add query", &[("src/search.txt", "index\nquery\n")], 1704118700)?;
         commit("(ui) Add button", &[("src/button.txt", "button\n")], 1704118800)?;
       }
+      if scenario == UpdateScenario::SquashedOnGitHub {
+        let debug: [(&str, &str, i64); 2] = [("Enable debug", "debug=true\n", 1704118600), ("fixup! Enable debug", "debug=verbose\n", 1704118700)];
+        // the pull request of `debug` pushed its commits as the virtual branch has them: on the initial commit, without
+        // the prefix, with their author and author time
+        git(&["checkout", "-q", "--detach", "master~1"], None)?;
+        for (subject, content, time) in debug {
+          commit(subject, &[("src/config.txt", content)], time)?;
+        }
+        git(&["push", "-q", BARE_ORIGIN, "HEAD:refs/heads/user-name/virtual/debug"], None)?;
+        git(&["checkout", "-q", "master"], None)?;
+        for (subject, content, time) in debug {
+          commit(&format!("(debug) {subject}"), &[("src/config.txt", content)], time)?;
+        }
+      }
       if scenario == UpdateScenario::LandedNeed {
         commit("(codec) Add the codec", &[CODEC_KT], 1704118500)?;
         commit(
@@ -2292,6 +2327,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
         | UpdateScenario::WideConflict
         | UpdateScenario::Landed
         | UpdateScenario::LandedNeed
+        | UpdateScenario::SquashedOnGitHub
         | UpdateScenario::LostBindings => {}
       }
       Ok(())

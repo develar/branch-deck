@@ -44,14 +44,15 @@ pub const SESSION_REF_PREFIX: &str = "refs/branch-deck/resolve/";
 /// The audit record of a session: a note per resolved commit, written only by the finish
 pub const RESOLVE_NOTES_REF: &str = "refs/notes/branch-deck/resolve";
 const STATE_FILE: &str = "state.json";
-/// The version of `state.json`: 5 since a candidate names the commits it landed with (`LandedCandidate::landed_with`,
-/// once `fixups`) and what pairs it (`LandedCandidate::by`), and `likely_landed` is gone. brd is one binary for every
-/// session of a machine, so a brd of another version refuses a session by this number; this one reads a session of 4
-/// too (`READ_VERSIONS`), whose fields it knows
-const STATE_VERSION: u32 = 5;
+/// The version of `state.json`: 6 since a candidate may be paired by a merged pull request (`CandidateBy::PullRequest`,
+/// with its number), which a brd of 5 cannot read; 5 since a candidate names the commits it landed with
+/// (`LandedCandidate::landed_with`, once `fixups`) and what pairs it (`LandedCandidate::by`), and `likely_landed` is
+/// gone. brd is one binary for every session of a machine, so a brd of another version refuses a session by this
+/// number; this one reads a session of 4 and 5 too (`READ_VERSIONS`), whose fields it knows
+const STATE_VERSION: u32 = 6;
 /// The versions of `state.json` this brd reads: 4 has `fixups` (an alias of `landed_with`) and `likely_landed`, which
-/// is ignored
-const READ_VERSIONS: [u32; 2] = [4, STATE_VERSION];
+/// is ignored; 5 has no candidate by pull request
+const READ_VERSIONS: [u32; 3] = [4, 5, STATE_VERSION];
 /// The modes of a regular file: the only ones a round supports
 const FILE_MODES: [&str; 2] = ["100644", "100755"];
 /// The upstream commits listed per conflicting file
@@ -1520,8 +1521,8 @@ pub fn apply_prepared_round(git_executor: &GitCommandExecutor, repo_path: &str, 
 
 /// The `--landed` decision of the open round: it names the round's commit, which has a candidate
 /// (`SessionState::candidate_of`), and a commit that changes lines its upstream commit lacks (`interdiffs`), or of a
-/// candidate by changed lines whose change the upstream does not have as it is (`units_already_in`), is dropped only
-/// with `--user`
+/// candidate by changed lines or by pull request whose change the upstream does not have as it is (`units_already_in`),
+/// is dropped only with `--user`
 fn landed_decision(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -1547,10 +1548,10 @@ fn landed_decision(
   let interdiff = interdiffs(git_executor, repo_path, &[(candidate.unit().collect(), candidate.upstream.as_str())])?
     .pop()
     .unwrap_or_default();
-  // equal changed lines say nothing of their place, nor that the upstream still has them: by changed lines, only a
-  // change the upstream already has drops without the user
+  // equal changed lines say nothing of their place, nor that the upstream still has them; a pull request says nothing
+  // of the lines: by changed lines and by pull request, only a change the upstream already has drops without the user
   let differs = !interdiff.local_only.is_empty()
-    || (candidate.by == CandidateBy::ChangedLines
+    || (candidate.by != CandidateBy::Key
       && !units_already_in(git_executor, repo_path, &[candidate], &[state.upstream_head.as_str()])?
         .first()
         .is_some_and(|already| already[0]));

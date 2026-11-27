@@ -84,15 +84,16 @@ pub struct LandedTwin {
   /// The local commit; the commits it landed with go with it
   pub commit: String,
   pub subject: String,
-  /// The upstream commit with its identity, or with the changed lines of the commit and those it landed with
+  /// The upstream commit with its identity, with the changed lines of the commit and those it landed with, or the merge
+  /// commit of the pull request that pushed them
   pub upstream: String,
   pub upstream_subject: String,
   pub by: CandidateBy,
   /// The lines the local commit with the commits it landed with changes and `upstream` does not, and the reverse: a
   /// drop loses `local_only`
   pub interdiff: Interdiff,
-  /// By changed lines: whether the upstream has the change of the commit and those it landed with as it is
-  /// (`landed_pairing::units_already_in`); by identity always
+  /// By changed lines and by pull request: whether the upstream has the change of the commit and those it landed with as
+  /// it is (`landed_pairing::units_already_in`); by identity always
   pub already_upstream: bool,
 }
 
@@ -444,9 +445,9 @@ fn drops_and_twins(
     warn!(error = %format!("{e:#}"), "can't compare the landed candidates with their upstream commits");
     Vec::new()
   });
-  // by changed lines, whether the upstream has their change as it is: one `merge-tree` and one `rev-parse`, none
-  // without such a candidate
-  let by_lines: Vec<&LandedCandidate> = candidates.iter().copied().filter(|candidate| candidate.by == CandidateBy::ChangedLines).collect();
+  // by changed lines and by pull request, whether the upstream has their change as it is: one `merge-tree` and one
+  // `rev-parse`, none without such a candidate
+  let by_lines: Vec<&LandedCandidate> = candidates.iter().copied().filter(|candidate| candidate.by != CandidateBy::Key).collect();
   let already: HashMap<&str, bool> = units_already_in(git_executor, repo_path, &by_lines, &[state.upstream_head.as_str()])
     .unwrap_or_else(|e| {
       warn!(error = %format!("{e:#}"), "can't tell whether the upstream has the change of the landed candidates");

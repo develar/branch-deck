@@ -12,6 +12,8 @@
 //!   next push doesn't retarget again.
 //! - A pull request the app created stays until the search lists it, at most `CREATED_KEEP` on the session clock:
 //!   GitHub's search lists a new pull request only after a while.
+//! - The merged pull requests of a listing, with their merge commits, stay beside the view, out of it and of the frame:
+//!   what the update check of a sync and Update Project pair the squash of a pull request by (`merged`).
 
 use crate::facts::Seq;
 use crate::facts::{Observation, seed_head};
@@ -21,10 +23,12 @@ use domain_types::branch_names::{BranchKind, baseline_on_remote, strip_branch_na
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::{
-  ClosedShownReview, MergeMethod, PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestsResult, Reviewer, ReviewerState, ShownReview,
+  ClosedShownReview, KnownMergedPullRequests, MergeMethod, MergedPullRequests, PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, PullRequestsResult,
+  Reviewer, ReviewerState, ShownReview,
 };
 use domain_types::session::{FactState, PullRequestsView};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 /// GitHub's search lists a new pull request only after a while: one the app created is kept this long meanwhile
@@ -114,6 +118,49 @@ pub struct PullRequestsFact {
   /// The closed shown reviews of the last listing that asked them (`PullRequestsResult::closed_shown_reviews`), which
   /// the view leaves out: the session deletes their branches (`domain_policy::shown::closed_elsewhere`)
   closed_shown: Vec<ClosedShownReview>,
+  /// The merged pull requests of the last listing that stands, with their merge commits
+  /// (`PullRequestsResult::merged_pull_requests`), which the view and the frame leave out: the update check of a sync and
+  /// Update Project pair the commits a pull request pushed with its merge commit (`SessionMergedPullRequests`); `None`
+  /// while no listing stands
+  merged: Option<KnownMergedPullRequests>,
+}
+
+/// The merged pull requests a sync of the session pairs with (`PullRequestsFact::merged` as the run began), with whether
+/// its update check asked them: a listing with others then asks a sync, so the header decides on the facts a click
+/// decides on
+#[derive(Debug, Default)]
+pub struct SessionMergedPullRequests {
+  known: Option<KnownMergedPullRequests>,
+  asked: AtomicBool,
+}
+
+impl SessionMergedPullRequests {
+  #[must_use]
+  pub const fn new(known: Option<KnownMergedPullRequests>) -> Self {
+    Self {
+      known,
+      asked: AtomicBool::new(false),
+    }
+  }
+
+  /// Whether a check asked them
+  #[must_use]
+  pub fn asked(&self) -> bool {
+    self.asked.load(Ordering::Relaxed)
+  }
+
+  /// The revision of the pull requests it answers; `None` without a listing
+  #[must_use]
+  pub fn revision(&self) -> Option<u64> {
+    self.known.as_ref().map(|known| known.revision)
+  }
+}
+
+impl MergedPullRequests for SessionMergedPullRequests {
+  fn merged_since(&self, _since: u32) -> Option<KnownMergedPullRequests> {
+    self.asked.store(true, Ordering::Relaxed);
+    self.known.clone()
+  }
 }
 
 /// The shown reviews `shown` (by branch) as the robots `robots` leave them (`domain_policy::shown::state_now`): a fix of
@@ -159,6 +206,12 @@ impl PullRequestsFact {
     &self.closed_shown
   }
 
+  /// The merged pull requests of the last listing that stands; `None` while none stands
+  #[must_use]
+  pub const fn merged(&self) -> Option<&KnownMergedPullRequests> {
+    self.merged.as_ref()
+  }
+
   /// The answer of a listing that answered at `observation.at`; whether it changed the part. An answer not newer than
   /// the last one changes nothing
   pub fn answer(&mut self, observation: Observation, result: PullRequestsResult) -> bool {
@@ -175,6 +228,7 @@ impl PullRequestsFact {
       github_stacks,
       shown_reviews,
       closed_shown_reviews,
+      merged_pull_requests,
     } = result;
     let recovers = matches!(availability, PullRequestAvailability::Error { .. } | PullRequestAvailability::RateLimited { .. });
     let mut changed = false;
@@ -208,6 +262,8 @@ impl PullRequestsFact {
         self.closed_shown = closed;
       }
       self.listed = matches!(availability, PullRequestAvailability::Available { .. });
+      // out of the view: they change no part of it
+      self.merged = self.listed.then(|| KnownMergedPullRequests::new(merged_pull_requests));
       // a write the listing saw needs keeping no more
       self.written.retain(|_, written| *written > seq);
       match availability {

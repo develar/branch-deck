@@ -16,7 +16,8 @@
 use crate::fake_github::FakeAnswer;
 use domain_types::patronus::PatronusCommandReply;
 use domain_types::pull_request::{
-  AsyncMergeStatus, GitHubUser, MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestStackEntry, PullRequestState, ReviewDecision, Reviewer, ReviewerState,
+  AsyncMergeStatus, GitHubUser, MergeMethod, MergeMethods, MergeStateStatus, MergedPullRequest, PullRequest, PullRequestStackEntry, PullRequestState, ReviewDecision, Reviewer,
+  ReviewerState,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -167,6 +168,9 @@ pub struct RepositoryState {
   /// The merge methods the repository allows, which the listing names; `None`: GitHub's defaults, every method and no
   /// auto-merge
   pub merge_methods: Option<MergeMethods>,
+  /// The commit each merged pull request was merged as, by number (`mergedAt` and `mergeCommit` of the listing); its head
+  /// is the pull request's own
+  pub merges: BTreeMap<u32, MergedPullRequest>,
 }
 
 #[derive(Default)]
@@ -505,7 +509,7 @@ impl FakeGitHubRepository {
     }
     if query.contains("search(") {
       let pulls: Vec<PullRequest> = state.pulls.iter().map(|pull| self.resolved(&pull.pull_request, state)).collect();
-      let mut data = search_data(&state.owner, &state.viewer, pulls);
+      let mut data = search_data(&state.owner, &state.viewer, pulls, &state.merges);
       if query.contains("shown: search(") {
         let shown: Vec<(PullRequest, String, u32)> = state
           .pulls
@@ -1028,11 +1032,21 @@ fn request_reviewers(state: &mut RepositoryState, index: usize, body: &Value) ->
 /// The `data` of the search of the pull requests of `viewer` (`author:@me` of `PULL_REQUESTS_QUERY` of `sync_core`) among
 /// `pull_requests`, newest first, in the repository of `owner`: what GitHub answers for them, which the real parser
 /// reads back into the same pull requests
-pub fn search_data(owner: &str, viewer: &str, mut pull_requests: Vec<PullRequest>) -> Value {
+pub fn search_data(owner: &str, viewer: &str, mut pull_requests: Vec<PullRequest>, merges: &BTreeMap<u32, MergedPullRequest>) -> Value {
   pull_requests.retain(|pull_request| pull_request.author.as_deref().is_some_and(|author| author.eq_ignore_ascii_case(viewer)));
   pull_requests.sort_by_key(|pull_request| std::cmp::Reverse(pull_request.updated_at));
   pull_requests.truncate(SEARCH_LIMIT);
-  let nodes: Vec<Value> = pull_requests.iter().map(|pull_request| search_node(owner, pull_request)).collect();
+  let nodes: Vec<Value> = pull_requests
+    .iter()
+    .map(|pull_request| {
+      let mut node = search_node(owner, pull_request);
+      if let Some(merge) = merges.get(&pull_request.number).filter(|_| pull_request.state == PullRequestState::Merged) {
+        node["mergedAt"] = json!(format_utc_timestamp(merge.merged_at));
+        node["mergeCommit"] = json!({"oid": merge.merge_commit, "author": {"email": merge.merge_author_email}});
+      }
+      node
+    })
+    .collect();
   json!({"repository": {"viewerPermission": "WRITE"}, "search": {"nodes": nodes}})
 }
 

@@ -4,6 +4,7 @@ import type { CommitsReviewWindowData } from "../../../src/types/sub-window"
 import { expect, test } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getPushButton } from "../helpers/branch-helpers"
 import { testCopyButtonOnHover } from "../helpers/clipboard-helpers"
+import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { pressAndExpectReviewOpened } from "../helpers/review-window-helpers"
 import { runAndWaitForUpdate } from "../helpers/sync-helpers"
 
@@ -157,6 +158,38 @@ test.describe("Landed commits", () => {
       listLabel: "feature-auth",
       index: 0,
     })
+  })
+
+  // The `squashed_on_github` template: GitHub squashed the pull request #7 of `debug` (its commit and its fixup, pushed
+  // as `user-name/virtual/debug`) into the tip of origin/master under the noreply address of the user
+  test("should land a pull request squashed on GitHub under a noreply address as its merge commit", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("squashed_on_github")
+    await syncAndWaitForBranches()
+    // no identity and no author of the local commits: without the pull request the replay conflicts
+    const button = updateButton(page)
+    await expect(button).toHaveAttribute("data-status", "conflict")
+
+    const squash = await repo.revision("origin/master")
+    const head = await repo.revision("origin/user-name/virtual/debug")
+    await repo.setPullRequests({
+      ...availablePullRequests(pullRequest("debug", 7, { state: "merged", headRefOid: head })),
+      mergedPullRequests: [
+        { number: 7, headRefName: "user-name/virtual/debug", headRefOid: head, mergeCommit: squash, mergeAuthorEmail: "1+test@users.noreply.github.com", mergedAt: 1704175900 },
+      ],
+    })
+    // a session that opens lists the pull requests; a check that asked the merged ones checks again with them
+    await repo.closeSessions()
+    await page.reload()
+    await syncAndWaitForBranches()
+    await expect(button).toHaveAttribute("data-status", "clean")
+
+    await runAndWaitForUpdate(page, () => button.click())
+    const debug = landedBranch(page, "debug")
+    await expect(debug.getByTestId("landed-count")).toHaveText("2 landed")
+    await debug.getByRole("button", { expanded: false }).first().click()
+    // both landed as the squash
+    await expect(debug.getByTestId("landed-upstream-hash")).toHaveText([squash.slice(0, 8), squash.slice(0, 8)])
+    await expect(findBranchRow(page, "feature-auth")).toBeVisible()
   })
 
   test("should show the copy button of a baseline commit on hover", async ({ page, setupRepo, syncAndWaitForBranches }) => {

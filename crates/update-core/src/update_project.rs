@@ -8,6 +8,7 @@ use anyhow::{Result, anyhow, bail};
 use domain_types::branch_names::managed_branch_kind;
 use domain_types::conflict::GeneratedFile;
 use domain_types::landed::LandedBranch;
+use domain_types::pull_request::{KnownMergedPullRequests, MergedPullRequests};
 use domain_types::update_project::{KeptLostBinding, UpdateCheck, UpdateLostBinding, UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_signing::{Signing, commit_signing};
@@ -47,6 +48,9 @@ pub struct UpdateProjectParams {
   /// The lost bindings the user keeps unbound (Update Anyway of the dialog of their conflict): an update whose replay
   /// loses only these applies, and its result names them (`UpdateProjectResult::kept_lost_bindings`)
   pub keep: Vec<KeptLostBinding>,
+  /// The merged pull requests of the session's listing, copied before the core runs: a replay that conflicts pairs the
+  /// commits a pull request pushed with its merge commit (`UpdateOptions::merged`); `None` pairs without them
+  pub pull_requests: Option<KnownMergedPullRequests>,
 }
 
 /// The step an update is at
@@ -89,6 +93,9 @@ pub struct UpdateOptions<'a> {
   pub lease: &'a LeaseGuard,
   /// The lost bindings kept unbound (`UpdateProjectParams::keep`); none for `brd`, whose session keeps names by round
   pub keep: &'a [KeptLostBinding],
+  /// Where the check asks for the merged pull requests after a conflict (`LandedLookup::by_key_with`), before the lock:
+  /// the session's listing in the app, one search of GitHub in `brd update`; `None` pairs without them
+  pub merged: Option<&'a dyn MergedPullRequests>,
 }
 
 /// The fetch of an update failed; nothing was changed
@@ -122,6 +129,7 @@ pub fn update_project_core(
     onto: None,
     lease: &params.lease,
     keep: &params.keep,
+    merged: params.pull_requests.as_ref().map(|known| known as &dyn MergedPullRequests),
   };
   update_project_with(git_executor, &params.repository_path, options, on_progress)
 }
@@ -243,7 +251,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   // the check (the replay, the resolution by words, the landed candidates) on the HEAD and the upstream it reads once,
   // before the lock: the lock is held only for the witness, the local changes and the move
   on_progress(UpdatePhase::Checking.into());
-  let mut prepared = prepare_update(git_executor, repo_path, upstream_ref, signing, options.keep)?;
+  let mut prepared = prepare_update(git_executor, repo_path, upstream_ref, signing, options)?;
   // nothing to move (up to date, blocked, or a conflict that starts no session): the check is the answer, and no lock
   // is waited for, unless a crash left files to follow
   if moves_nothing(&prepared.plan.check.state, resolve) && pending_update(git_executor, repo_path)?.is_none() {
@@ -306,7 +314,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
     prepared.plan.discard(git_executor, repo_path);
     drop(lock);
     info!("the branch or its upstream moved during the check: it checks again without the lock");
-    prepared = prepare_update(git_executor, repo_path, upstream_ref, signing, options.keep)?;
+    prepared = prepare_update(git_executor, repo_path, upstream_ref, signing, options)?;
     start = session_start(git_executor, repo_path, &prepared, resolve, signing)?;
     checks += 1;
   };
@@ -445,12 +453,13 @@ struct Prepared {
 /// conflict (`UpdatePlan::check_lost_bindings` with `trial_check::lost_bindings::REPLAY_RULE`): the copy of a local
 /// commit removes the import or the private declaration of a name that the upstream uses again in the same file, git
 /// merged it, and the file would not compile. Nothing moves then: the app's update answers the conflict with its lost
-/// bindings, `brd update` starts a session at their round. The `keep` names (Update Anyway) are kept unbound
-fn prepare_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, signing: Signing, keep: &[KeptLostBinding]) -> Result<Prepared> {
+/// bindings, `brd update` starts a session at their round. The `keep` names (Update Anyway) are kept unbound. A replay
+/// that conflicts asks the merged pull requests of `options` (`UpdateOptions::merged`), here, before the lock
+fn prepare_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, signing: Signing, options: UpdateOptions<'_>) -> Result<Prepared> {
   let (grouping, resolve_mode) = read_check_inputs(git_executor, repo_path)?;
-  let landed = LandedLookup::ByKey;
+  let landed = LandedLookup::by_key_with(options.merged);
   let mut plan = check_update_before_lock_with_signing(git_executor, repo_path, upstream, landed, resolve_mode, signing)?;
-  if let Err(error) = plan.check_lost_bindings(git_executor, repo_path, &REPLAY_RULE, keep) {
+  if let Err(error) = plan.check_lost_bindings(git_executor, repo_path, &REPLAY_RULE, options.keep) {
     plan.discard(git_executor, repo_path);
     return Err(error);
   }

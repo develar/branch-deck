@@ -9,6 +9,7 @@ use crate::update_project::{
 use domain_types::SyncEvent;
 use domain_types::error::ErrorCode;
 use domain_types::landing::BindingKind;
+use domain_types::pull_request::{KnownMergedPullRequests, MergedPullRequest};
 use domain_types::update_project::{FirstConflict, KeptLostBinding, UpdateCommit, UpdateKind, UpdateLostBinding, UpdateProjectResult, UpdateState};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::STATE_DIR;
@@ -20,6 +21,7 @@ use git_ops::update_branch::{
 use git_ops::update_branch::{GuardRefusal, UndoBlocked};
 use git_ops::word_resolve::ResolveMode;
 #[cfg(unix)]
+use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::regroup::{RegroupOptions, rename_branch_core};
 use history_rewrite::repository_lock::{LockWait, RepositoryLocked, lock_repository_as_another_process};
 use object_cache::cache::ObjectCache;
@@ -28,7 +30,7 @@ use std::cell::RefCell;
 use std::fmt::Write;
 use std::fs;
 use std::time::Duration;
-use sync_core::baseline::{check_baseline_update, previous_tip_of_forced_update};
+use sync_core::baseline::{CheckInputs, check_baseline_update, check_baseline_update_with, previous_tip_of_forced_update};
 use sync_core::lease_state::LeaseGuard;
 use sync_core::sync::{SyncOptions, sync_branches};
 use test_log::test;
@@ -58,34 +60,25 @@ pub(crate) fn git(repo: &TestRepo, args: &[&str]) -> String {
   repo.git_executor().execute_command(args, path(repo)).unwrap()
 }
 
+/// The params of an update of `repo` with its fetch, as the app's without the merged pull requests of a session
+fn update_params(repo: &TestRepo) -> UpdateProjectParams {
+  UpdateProjectParams {
+    repository_path: path(repo).to_string(),
+    fetch: true,
+    lease: LeaseGuard::any(),
+    keep: Vec::new(),
+    pull_requests: None,
+  }
+}
+
 pub(crate) fn update(repo: &TestRepo) -> anyhow::Result<UpdateProjectResult> {
-  update_project_core(
-    repo.git_executor(),
-    &UpdateProjectParams {
-      repository_path: path(repo).to_string(),
-      fetch: true,
-      lease: LeaseGuard::any(),
-      keep: Vec::new(),
-    },
-    &|_| {},
-    LockWait::default(),
-  )
+  update_project_core(repo.git_executor(), &update_params(repo), &|_| {}, LockWait::default())
 }
 
 /// `update`, with everything it reported while it ran
 fn update_reporting_progress(repo: &TestRepo) -> (anyhow::Result<UpdateProjectResult>, Vec<UpdateProgress>) {
   let progress = RefCell::new(Vec::new());
-  let result = update_project_core(
-    repo.git_executor(),
-    &UpdateProjectParams {
-      repository_path: path(repo).to_string(),
-      fetch: true,
-      lease: LeaseGuard::any(),
-      keep: Vec::new(),
-    },
-    &|it| progress.borrow_mut().push(it),
-    LockWait::default(),
-  );
+  let result = update_project_core(repo.git_executor(), &update_params(repo), &|it| progress.borrow_mut().push(it), LockWait::default());
   (result, progress.into_inner())
 }
 
@@ -359,6 +352,7 @@ fn update_keeping(repo: &TestRepo, keep: &[(&str, &str)]) -> UpdateProjectResult
           name: (*name).to_string(),
         })
         .collect(),
+      pull_requests: None,
     },
     &|_| {},
     LockWait::default(),
@@ -775,6 +769,7 @@ fn e2e_templates_have_the_expected_update_states() {
       fetch: true,
       lease: LeaseGuard::any(),
       keep: Vec::new(),
+      pull_requests: None,
     },
     &|_| {},
     LockWait::default(),
@@ -804,6 +799,31 @@ fn e2e_templates_have_the_expected_update_states() {
   let landing: Vec<(Option<&str>, usize, u32)> = landing.iter().map(|b| (b.name.as_deref(), b.commits.len(), b.remaining)).collect();
   assert_eq!(landing, vec![(Some("feature-auth"), 1, 0), (Some("search"), 1, 1)]);
 
+  // the squash of a pull request under a noreply address conflicts without the merged pull request, and lands as its
+  // merge commit with it: the two commits of `debug` the virtual branch pushed, not `feature-auth`
+  let (repo, state) = check("squashed_on_github", templates::squashed_on_github());
+  assert!(matches!(&state, UpdateState::Conflict { .. }), "{state:?}");
+  let revision = |rev: &str| git_executor.execute_command(&["rev-parse", rev], &repo).unwrap();
+  let merged = KnownMergedPullRequests::new(vec![MergedPullRequest {
+    number: 7,
+    head_ref_name: "user-name/virtual/debug".to_string(),
+    head_ref_oid: revision("origin/user-name/virtual/debug"),
+    merge_commit: revision("origin/master"),
+    merge_author_email: Some(templates::SQUASHED_ON_GITHUB_AUTHOR.to_string()),
+    merged_at: 1704175900,
+  }]);
+  let grouping = GroupingInputs::default();
+  let inputs = CheckInputs {
+    grouping: &grouping,
+    resolve: ResolveMode::Off,
+    lost_bindings: None,
+    merged: Some(&merged),
+  };
+  let preview = check_baseline_update_with(&git_executor, &repo, "origin/master", inputs).unwrap().unwrap();
+  assert_eq!(preview.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  let landing: Vec<(Option<&str>, usize, u32)> = preview.landing.iter().map(|b| (b.name.as_deref(), b.commits.len(), b.remaining)).collect();
+  assert_eq!(landing, vec![(Some("debug"), 2, 0)]);
+
   let (_, state) = check("update_blocked", templates::update_blocked());
   assert_eq!(state, blocked_state(vec!["src/app.txt".to_string()]));
 
@@ -822,6 +842,7 @@ fn e2e_templates_have_the_expected_update_states() {
       fetch: true,
       lease: LeaseGuard::any(),
       keep: Vec::new(),
+      pull_requests: None,
     },
     &|_| {},
     LockWait::default(),
@@ -1391,6 +1412,7 @@ const FETCH_AND_A_SHORT_WAIT: UpdateOptions = UpdateOptions {
   onto: None,
   lease: &LeaseGuard::any(),
   keep: &[],
+  merged: None,
 };
 
 /// `update_project_with` in `repo`, with the phases it told, each once
@@ -1442,6 +1464,7 @@ fn the_check_again_after_the_wait_for_the_lock_is_the_check_step() {
     onto: None,
     lease: &LeaseGuard::any(),
     keep: &[],
+    merged: None,
   };
   let result = std::thread::scope(|scope| {
     let update = scope.spawn(|| update_project_with(clone.git_executor(), path(&clone), options, &|it| sender.send(it.phase).unwrap()));
@@ -1500,6 +1523,7 @@ fn update_without_a_fetch_goes_onto_the_last_fetched_state() {
     onto: None,
     lease: &LeaseGuard::any(),
     keep: &[],
+    merged: None,
   };
 
   let result = update_project_with(clone.git_executor(), path(&clone), options, &|_| {}).unwrap();
@@ -1753,6 +1777,7 @@ fn an_update_onto_a_local_branch_moves_a_detached_head_and_its_undo_moves_it_bac
     onto: Some("master"),
     lease: &LeaseGuard::any(),
     keep: &[],
+    merged: None,
   };
 
   let result = update_project_with(repo.git_executor(), &lane.path, options, &|_| {}).unwrap();
@@ -1802,6 +1827,7 @@ fn the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_
     fetch: false,
     lease: LeaseGuard::any(),
     keep: Vec::new(),
+    pull_requests: None,
   };
   let result = update_project_core(span.executor(), &params, &|_| {}, LockWait::default()).unwrap();
   assert!(result.applied.is_some(), "{result:?}");
@@ -1866,6 +1892,7 @@ fn start_a_session(git_executor: &GitCommandExecutor, repo: &TestRepo) -> Sessio
     onto: None,
     lease: &LeaseGuard::any(),
     keep: &[],
+    merged: None,
   };
   match update_and_resolve(git_executor, path(repo), options, None).unwrap() {
     BdUpdate::Session(outcome) => match *outcome {

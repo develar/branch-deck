@@ -805,6 +805,7 @@ fn a_twin_that_differs_asks_the_user_and_drops_after_the_yes() {
   let landed_as = json!({
     "commit": twin,
     "subject": "Change line 2",
+    "by": "key",
     "local_only": [{ "path": "shared.txt", "lines": ["+mine"] }],
     "upstream_only": [{ "path": "shared.txt", "lines": ["+mine, fixed"] }],
   });
@@ -865,7 +866,7 @@ fn a_twin_with_every_line_of_the_commit_drops_without_a_question() {
   );
   assert_eq!(
     round["session"]["commit"]["landed_as"],
-    json!({ "commit": twin, "subject": "Change line 2", "upstream_only": [{ "path": "shared.txt", "lines": ["-three", "+THREE"] }] }),
+    json!({ "commit": twin, "subject": "Change line 2", "by": "key", "upstream_only": [{ "path": "shared.txt", "lines": ["-three", "+THREE"] }] }),
     "{round}"
   );
   let (exit_code, done) = run_next(&clone, &round, &[]);

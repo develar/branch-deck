@@ -321,6 +321,7 @@ taken and deletes it before the release), then runs the real git.
 | Drop of commits and its undo (`drop_commits_core`, `undo_drop_core`; the carried mapping notes before the lock) | the same five | `a_drop_and_its_undo_lock_only_the_witness_and_the_move` (`crates/history-rewrite/src/drop_commits_test.rs`) |
 | Reapply and its undo (`reapply_branch_core`, `undo_reapply_core`) | the same five | `a_reapply_and_its_undo_lock_only_the_witness_and_the_move` (`crates/sync-core/src/reapply_branch_test.rs`) |
 | Update Project of the app (`update_project_core`, after its fetch) | `read-tree`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref` (the witness, the local changes, the move; one `update-index`, the refresh the dry run and the move share) | `the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_move` (`crates/update-core/src/update_project_test.rs`) |
+| The merged pull requests of an update's check (`MergedPullRequests::merged_since`, asked after a conflict; a network request of `brd update`) | nothing: the check asks them before the lock, the concurrency scan cannot see a call through a trait | `the_merged_pull_requests_are_asked_without_the_repository_lock` (`crates/update-core/src/landed_test.rs`) |
 | `brd update` (`update_and_resolve`, an update that applies) | the same five | `the_check_of_an_update_runs_before_the_lock` (`crates/bd-update/src/update_test.rs`) |
 | Undo of an update (`undo_update_core`) | `for-each-ref`, `read-tree`, `symbolic-ref`, `update-index`, `update-ref` | `the_undo_of_an_update_locks_only_the_witness_and_the_move` (`update_project_test.rs`) |
 | The start of a resolve session (`prepare_session_start`, `PreparedStart::start`) | `fast-import`, `log`, `rev-parse`, `symbolic-ref`, `update-ref` (the mark and the witness, the state with the session ref, the copies) | `the_start_of_a_resolve_session_locks_only_the_witness_and_its_write` (`update_project_test.rs`) |
@@ -1742,11 +1743,26 @@ Details:
   that again only all of them at once); two of one size make none. The set is one candidate (`CandidateBy::
   ChangedLines`, `landed_with` the commits after the first).
 
+  Last, the candidates by pull request (`landed_by_pull_request`), for a squash with an edit of the review of its own or
+  of the noreply address of the user, whose lines no set sums to or whose author the pairing never reads. Only when a
+  local commit is left that nothing took, the caller's merged pull requests are asked once, since the oldest author time
+  of those (`MergedPullRequests::merged_since`, `LandedLookup::WithPullRequests`; the app the listing of its session,
+  `brd update` one search of GitHub; no IO in the check, and before the lock). A pull request counts by its merge commit
+  (`mergeCommit`): nothing took it, no local commit is it, it is among the upstream commits the pairing read, else in one
+  `log --no-merges --fixed-strings --author=<email> B..U` of the authors of the other merge commits, and no local commit
+  has its key (a rebase merge, which the keys pair). Then one `rev-list --ignore-missing <heads> ^U` with the parents
+  reads what each head pushed (a head the repository lacks pushed nothing), walked in memory per head: the local
+  commits nothing took among them, by id, key or mapping note, are one candidate of its merge commit
+  (`CandidateBy::PullRequest(n)`), a commit going to the pull request merged first. The check keeps what it asked
+  (`MergedAsk`: the time and the revision of the answer, a hash of its content): a cached preview, and the cached
+  conflict an apply takes, holds only while the same question gets the same answer, and the landing cache of the
+  preview is keyed by it too.
+
   A pair that no rung proves is a candidate: the key alone is no proof (an amend after the push, a robot that folded
   its fixups in, an independent fix of the same lines), nor equal changed lines. The proven commits are left out as a
   drop does, one `replay` per run of kept commits, the first run `<d_1>^ ^U ^<previous tips>` onto U. If that still
   conflicts, the candidates with the commits they landed with, then the candidates by key alone with those by changed
-  lines whole, are left out too. Such a set counts only if each candidate keeps its change: one `merge-tree --stdin` of
+  lines and by pull request whole, are left out too. Such a set counts only if each candidate keeps its change: one `merge-tree --stdin` of
   the lines `C^ -- <result> <last>` and `C^ -- U <last>`, where `last` is the last commit C landed with (or C), and one
   `rev-parse` of both trees; the merge into the result gives the result's tree, or the replay leaves out the whole unit
   and the merge into U gives U's tree, so the commits replayed after it (a local commit that rewrote the squashed line

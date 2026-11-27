@@ -1,17 +1,21 @@
+use crate::resolve_session::SessionOutcome;
 use crate::update_project::update_project_test::{ORIGIN_MASTER, Setup, git, path, setup, update};
-use crate::update_project::{UpdateUndoToken, undo_update_core};
+use crate::update_project::{BdUpdate, UpdateOptions, UpdateProjectParams, UpdateUndoToken, undo_update_core, update_and_resolve, update_project_core, update_project_with};
 use domain_types::SyncEvent;
 use domain_types::landed::LandedBranch;
-use domain_types::update_project::{UpdateKind, UpdateState};
-use git_ops::landed_pairing::{LandedDrop, LandedProof};
+use domain_types::pull_request::{KnownMergedPullRequests, MergedPullRequest, MergedPullRequests};
+use domain_types::update_project::{UpdateKind, UpdateProjectResult, UpdateState};
+use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::landed_pairing::{CandidateBy, LandedDrop, LandedProof, PathLines};
 use git_ops::lease_slot::STATE_DIR;
 use git_ops::update_branch::{CheckPurpose, LandedLookup, check_update};
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::GroupingInputs;
+use history_rewrite::repository_lock::{LockWait, try_lock_repository};
 use pretty_assertions::assert_eq;
 use std::fs;
 use std::time::Duration;
-use sync_core::baseline::check_baseline_update;
+use sync_core::baseline::{BaselineCheck, CheckInputs, check_baseline_update, check_baseline_update_with};
 use sync_core::landed::{LandedQuery, dismiss_landed, find_landed, read_report, record_sync, record_update, remaining_revs};
 use sync_core::lease_state::{LeaseGuard, LeasePaths};
 use sync_core::sync::{SyncOptions, sync_branches};
@@ -616,4 +620,165 @@ fn a_candidate_amended_after_the_push_keeps_only_itself_local_while_the_other_sq
   assert_eq!(git(&clone, &["log", "--format=%s", "-2"]), "(auth) Add login\nOther work");
   assert_eq!(fs::read_to_string(clone.path().join("extra.txt")).unwrap(), "extra\n");
   assert_eq!(fs::read_to_string(clone.path().join("f.txt")).unwrap(), "a\nB2\nc\nd\n");
+}
+
+/// The address GitHub gives a user who keeps theirs private: the squash of their pull request is of it
+const NOREPLY: &str = "1+test@users.noreply.github.com";
+
+/// The squash of `change_b_and_fixup` that GitHub wrote as `f.txt` of `content` under the noreply address of the user,
+/// then one more upstream commit, fetched; the squash, and the merged pull request #1 whose head was the local branch
+fn squash_under_noreply(upstream: &TestRepo, clone: &TestRepo, content: &str) -> (String, KnownMergedPullRequests) {
+  let env = [("GIT_AUTHOR_NAME", "Test User"), ("GIT_AUTHOR_EMAIL", NOREPLY)];
+  let squash = commit_upstream(upstream, "feat: change b (#1)", &[("f.txt", content)], &env);
+  upstream.create_commit("Other work", "other.txt", "other work\n");
+  git(clone, &["fetch", "origin"]);
+  let merged = MergedPullRequest {
+    number: 1,
+    head_ref_name: "user/virtual/feature".to_string(),
+    head_ref_oid: clone.head(),
+    merge_commit: squash.clone(),
+    merge_author_email: Some(NOREPLY.to_string()),
+    merged_at: 1_700_000_900,
+  };
+  (squash, KnownMergedPullRequests::new(vec![merged]))
+}
+
+/// The check inside a sync of `repo` with the merged pull requests `merged`
+fn preview_with(repo: &TestRepo, merged: &dyn MergedPullRequests) -> BaselineCheck {
+  let grouping = GroupingInputs::default();
+  let inputs = CheckInputs {
+    grouping: &grouping,
+    resolve: ResolveMode::Off,
+    lost_bindings: None,
+    merged: Some(merged),
+  };
+  check_baseline_update_with(repo.git_executor(), path(repo), "origin/master", inputs).unwrap().unwrap()
+}
+
+/// Update Project of `repo` with the merged pull requests `merged` of the session
+fn update_with(repo: &TestRepo, merged: KnownMergedPullRequests) -> UpdateProjectResult {
+  update_project_core(
+    repo.git_executor(),
+    &UpdateProjectParams {
+      repository_path: path(repo).to_string(),
+      fetch: false,
+      lease: LeaseGuard::any(),
+      keep: Vec::new(),
+      pull_requests: Some(merged),
+    },
+    &|_| {},
+    LockWait::default(),
+  )
+  .unwrap()
+}
+
+/// branch-deck#284: GitHub squashed the pull request under the noreply address of the user, never read with the local
+/// authors, so neither an identity nor the changed lines pair it, and the update conflicts as before. GitHub's merge
+/// commit of the pull request that pushed both is their candidate: its change is already in the upstream, so the
+/// preview and the update both drop them as landed in it
+#[test]
+fn a_pull_request_squashed_under_a_noreply_address_lands_as_its_merge_commit() {
+  let Setup { upstream, clone } = with_lines();
+  change_b_and_fixup(&clone);
+  let (squash, merged) = squash_under_noreply(&upstream, &clone, "a\nB2\nc\nd\n");
+  let without = check_baseline_update(clone.git_executor(), path(&clone), "origin/master").unwrap().unwrap();
+  assert!(matches!(without.check.state, UpdateState::Conflict { .. }), "{:?}", without.check.state);
+
+  let preview = preview_with(&clone, &merged);
+  assert_eq!(preview.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  assert_eq!(describe(&preview.landing), landed_as_squash(&squash, 0));
+  let result = update_with(&clone, merged);
+  assert_eq!(describe(&result.landed), landed_as_squash(&squash, 0));
+  assert_eq!(clone.head(), git(&clone, &["rev-parse", "origin/master"]));
+}
+
+/// The squash carries an edit of the review of the squashed line itself: the upstream has the pull request, but not the
+/// change of its commits as they are, so leaving them out would lose it unseen. The app's update still conflicts, and
+/// its preview says so; `brd update` asks the user in the round of the candidate
+#[test]
+fn a_squash_with_a_review_edit_of_its_own_lines_still_conflicts_in_the_app() {
+  let Setup { upstream, clone } = with_lines();
+  change_b_and_fixup(&clone);
+  let head = clone.head();
+  let (_, merged) = squash_under_noreply(&upstream, &clone, "a\nB2 reviewed\nc\nd\n");
+  let preview = preview_with(&clone, &merged);
+  assert!(matches!(preview.check.state, UpdateState::Conflict { .. }), "{:?}", preview.check.state);
+  let result = update_with(&clone, merged);
+  assert!(matches!(result.check.state, UpdateState::Conflict { .. }), "{:?}", result.check.state);
+  assert!(result.applied.is_none());
+  assert_eq!(clone.head(), head);
+}
+
+/// The merged pull requests, which `brd update` asks of GitHub over the network, are asked by the check before the
+/// repository lock, never under it (the concurrency scan cannot see a call through a trait)
+#[test]
+fn the_merged_pull_requests_are_asked_without_the_repository_lock() {
+  struct LockProbe {
+    merged: KnownMergedPullRequests,
+    path: String,
+    asked_unlocked: std::sync::Mutex<Vec<bool>>,
+  }
+  impl MergedPullRequests for LockProbe {
+    fn merged_since(&self, since: u32) -> Option<KnownMergedPullRequests> {
+      let free = try_lock_repository(&GitCommandExecutor::new(), &self.path).unwrap().is_some();
+      self.asked_unlocked.lock().unwrap().push(free);
+      self.merged.merged_since(since)
+    }
+  }
+  let Setup { upstream, clone } = with_lines();
+  change_b_and_fixup(&clone);
+  let (squash, merged) = squash_under_noreply(&upstream, &clone, "a\nB2\nc\nd\n");
+  let provider = LockProbe {
+    merged,
+    path: path(&clone).to_string(),
+    asked_unlocked: std::sync::Mutex::default(),
+  };
+  let lease = LeaseGuard::any();
+  let options = UpdateOptions {
+    fetch: false,
+    lock_wait: LockWait::default(),
+    onto: None,
+    lease: &lease,
+    keep: &[],
+    merged: Some(&provider),
+  };
+  let result = update_project_with(clone.git_executor(), path(&clone), options, &|_| {}).unwrap();
+  assert_eq!(describe(&result.landed), landed_as_squash(&squash, 0));
+  assert_eq!(*provider.asked_unlocked.lock().unwrap(), [true]);
+}
+
+/// The squash with an edit of the review of `a_squash_with_a_review_edit_of_its_own_lines_still_conflicts_in_the_app`,
+/// updated by `brd update`: its session opens the round of the commit with the merge commit of the pull request as its
+/// candidate, whose interdiff shows the edit, and which a drop needs the user's yes for (the upstream lacks the change as
+/// it is)
+#[test]
+fn the_round_of_a_pull_request_squashed_with_a_review_edit_names_its_merge_commit_and_asks_the_user() {
+  let Setup { upstream, clone } = with_lines();
+  change_b_and_fixup(&clone);
+  let (squash, merged) = squash_under_noreply(&upstream, &clone, "a\nB2 reviewed\nc\nd\n");
+  let lease = LeaseGuard::any();
+  let options = UpdateOptions {
+    fetch: false,
+    lock_wait: LockWait::default(),
+    onto: None,
+    lease: &lease,
+    keep: &[],
+    merged: Some(&merged),
+  };
+  let BdUpdate::Session(outcome) = update_and_resolve(clone.git_executor(), path(&clone), options, None).unwrap() else {
+    panic!("no session");
+  };
+  let SessionOutcome::Round(view) = *outcome else {
+    panic!("not a round");
+  };
+  let twin = view.round.and_then(|round| round.commit.landed_as).unwrap();
+  assert_eq!((twin.upstream.as_str(), twin.by), (squash.as_str(), CandidateBy::PullRequest(1)));
+  assert_eq!(
+    twin.interdiff.upstream_only,
+    [PathLines {
+      path: "f.txt".to_string(),
+      lines: vec!["+B2 reviewed".to_string()]
+    }]
+  );
+  assert!(!twin.is_same(), "{twin:?}");
 }

@@ -5,6 +5,7 @@ use domain_types::error::{ApiError, ErrorCode, HolderTool};
 use domain_types::fixtures::{land_intent, push_intent};
 use domain_types::operation::{OperationEvent, OperationId, OperationResult, OperationStats, OperationStep, Outcome, Resource, RunningMove, RunningOperation};
 use domain_types::patronus::PatronusPushMode;
+use domain_types::pull_request::MergedPullRequests;
 use domain_types::repository_view::PatronusView;
 use domain_types::worktree_epoch::WorktreeEpoch;
 use pretty_assertions::assert_eq;
@@ -31,7 +32,7 @@ impl SessionHost for IdleHost {
     None
   }
 
-  fn run(&self, _key: &SessionKey, _opened: WorktreeEpoch, _reporter: RunReporter) -> SyncRun {
+  fn run(&self, _key: &SessionKey, _opened: WorktreeEpoch, _merged: Arc<dyn MergedPullRequests>, _reporter: RunReporter) -> SyncRun {
     if let Some(runs) = &self.runs {
       let _ = runs.send(());
     }

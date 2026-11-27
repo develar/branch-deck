@@ -1,6 +1,8 @@
 use crate::commit::IssueLead;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Arc;
 
 /// A GitHub pull request of a virtual branch, as the search of the user's pull requests reports it
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -439,6 +441,78 @@ pub struct PullRequestsResult {
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub closed_shown_reviews: Option<Vec<ClosedShownReview>>,
+  /// Every merged pull request of the listing with the commit GitHub merged it as (`mergeCommit`), beside the one pull
+  /// request of each branch: what an update pairs the squash of a pull request by (`MergedPullRequests`); empty unless
+  /// available. A name of its own, as a fixture of the E2E server flattens the result
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub merged_pull_requests: Vec<MergedPullRequest>,
+}
+
+/// A pull request GitHub merged, with the commit it merged it as (`mergeCommit`): the squash of a squash merge, the merge
+/// commit of a merge, the last rebased commit of a rebase merge. Patronus closes its pull requests without one
+/// (openspec/specs/repository/landed-commits/spec.md, "A merged pull request is a candidate of the commits it pushed")
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct MergedPullRequest {
+  pub number: u32,
+  /// The full name of its head branch on the remote, e.g. `user/virtual/feature-auth`
+  pub head_ref_name: String,
+  /// The commit its head was at when it merged: the commits it pushed are those of this commit that the baseline lacks
+  pub head_ref_oid: String,
+  /// The commit GitHub merged it as
+  pub merge_commit: String,
+  /// The author email of `merge_commit`; `None` when GitHub named none
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub merge_author_email: Option<String>,
+  /// Unix seconds
+  pub merged_at: u32,
+}
+
+/// The merged pull requests a caller knows, as one answer: the list and a hash of its content, which tells two answers
+/// apart without comparing them (a check that paired with one is checked again with another, `git_ops::update_branch`)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KnownMergedPullRequests {
+  pub merged: Arc<[MergedPullRequest]>,
+  pub revision: u64,
+}
+
+impl KnownMergedPullRequests {
+  /// `merged` with the hash of its content as its revision
+  #[must_use]
+  pub fn new(merged: impl Into<Arc<[MergedPullRequest]>>) -> Self {
+    let merged = merged.into();
+    let mut hasher = DefaultHasher::new();
+    merged.hash(&mut hasher);
+    Self {
+      merged,
+      revision: hasher.finish(),
+    }
+  }
+}
+
+/// Where an update asks for the merged pull requests (`MergedPullRequest`) of the commits it pairs, only after its
+/// replay conflicted with local commits that nothing else paired: the app the listing of its session, `brd update` one
+/// search of GitHub. No IO of its own in the check: the answer comes from the caller
+pub trait MergedPullRequests: Send + Sync {
+  /// The merged pull requests that may hold a commit authored at or after `since` (Unix seconds); `None` when none can be
+  /// told (signed out, offline, a failure): the update pairs as it does without them
+  fn merged_since(&self, since: u32) -> Option<KnownMergedPullRequests>;
+}
+
+/// By its name only: a log of the options of an update never lists every pull request
+impl std::fmt::Debug for dyn MergedPullRequests + '_ {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str("MergedPullRequests")
+  }
+}
+
+impl MergedPullRequests for KnownMergedPullRequests {
+  fn merged_since(&self, _since: u32) -> Option<KnownMergedPullRequests> {
+    Some(self.clone())
+  }
 }
 
 /// A shown review of the user closed (on GitHub, by anyone), as the listing names it: whose branches the remote still
@@ -477,6 +551,7 @@ impl PullRequestsResult {
       github_stacks: false,
       shown_reviews: BTreeMap::new(),
       closed_shown_reviews: None,
+      merged_pull_requests: Vec::new(),
     }
   }
 }

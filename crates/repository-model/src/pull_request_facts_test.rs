@@ -5,7 +5,9 @@ use crate::facts::{Observation, Seq};
 use crate::pull_request_facts::{CREATED_KEEP, PullRequestSubject, PullRequestWrite, PullRequestsFact, PushedHead};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::pull_request;
-use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, Reviewer, ReviewerState, TokenSource, ViewerPermission};
+use domain_types::pull_request::{
+  KnownMergedPullRequests, MergedPullRequest, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, Reviewer, ReviewerState, TokenSource, ViewerPermission,
+};
 use domain_types::session::FactState;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -276,4 +278,37 @@ fn a_merge_and_the_auto_merge_go_into_the_pull_request_at_once_and_the_methods_w
   // a listing that started before the merge keeps it
   fact.answer(at(2, 13), listed);
   assert_eq!(auth(&fact).state, PullRequestState::Merged);
+}
+
+/// The merged pull requests of a listing, with their merge commits, stay beside the view (and so out of the frame, which
+/// holds the view): a listing that differs only in them changes no part of it. A failure GitHub recovers from keeps
+/// them with the listing; a sign-out drops them
+#[test]
+fn the_merged_pull_requests_of_a_listing_stay_out_of_the_view_and_the_frame() {
+  let merged = MergedPullRequest {
+    number: 7,
+    head_ref_name: "user/virtual/auth".to_owned(),
+    head_ref_oid: "1".repeat(40),
+    merge_commit: "2".repeat(40),
+    merge_author_email: Some("1+user@users.noreply.github.com".to_owned()),
+    merged_at: 1_700_000_500,
+  };
+  let auth = pull_request("auth", 1);
+  let with_merged = PullRequestsResult {
+    merged_pull_requests: vec![merged.clone()],
+    ..listing(std::slice::from_ref(&auth))
+  };
+  let mut fact = PullRequestsFact::default();
+  let mut without = PullRequestsFact::default();
+  fact.answer(at(1, 10), listing(std::slice::from_ref(&auth)));
+  without.answer(at(1, 10), listing(std::slice::from_ref(&auth)));
+  assert!(!fact.answer(at(2, 11), with_merged), "the merged ones change no part of the view");
+  assert_eq!(fact.view().pull_requests, without.view().pull_requests);
+  assert!(!serde_json::to_string(fact.view()).unwrap().contains(&merged.merge_commit));
+  assert_eq!(fact.merged(), Some(&KnownMergedPullRequests::new(vec![merged.clone()])));
+
+  fact.answer(at(3, 12), PullRequestsResult::unavailable(PullRequestAvailability::Error { message: "offline".to_owned() }));
+  assert_eq!(fact.merged(), Some(&KnownMergedPullRequests::new(vec![merged])), "a failure keeps the last listing");
+  fact.answer(at(4, 13), PullRequestsResult::unavailable(PullRequestAvailability::SignedOut));
+  assert_eq!(fact.merged(), None);
 }

@@ -9,6 +9,7 @@ use domain_types::fixtures::land_intent;
 use domain_types::landing::PlannedEffect;
 use domain_types::operation::{EffectStatus, Fingerprint, Intent, OperationId, OperationResult, OperationStep, Outcome, Resource, RunningOperation};
 use domain_types::patronus::PatronusPushMode;
+use domain_types::pull_request::MergedPullRequests;
 use domain_types::repository_view::PatronusView;
 use domain_types::rewrite::{CommitReword, ParkBranchLine, RewordText, RewriteIntent, RewriteResult, TableWitness, UndoKind, UndoToken};
 use domain_types::session::{SyncReason, ViewPatch};
@@ -900,9 +901,9 @@ impl SessionHost for Seeded {
     self.host.inputs(key)
   }
 
-  fn run(&self, key: &SessionKey, opened: WorktreeEpoch, reporter: RunReporter) -> SyncRun {
+  fn run(&self, key: &SessionKey, opened: WorktreeEpoch, merged: Arc<dyn MergedPullRequests>, reporter: RunReporter) -> SyncRun {
     self.runs.fetch_add(1, Ordering::SeqCst);
-    let (run, mut released, failure) = (self.host.run(key, opened, reporter), self.released.clone(), Arc::clone(&self.failure));
+    let (run, mut released, failure) = (self.host.run(key, opened, merged, reporter), self.released.clone(), Arc::clone(&self.failure));
     Box::pin(async move {
       let _ = released.wait_for(|released| *released).await;
       let failed = failure.lock().unwrap().take();

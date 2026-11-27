@@ -552,6 +552,35 @@ fn a_state_of_version_4_reads_its_fixups() {
   assert_eq!((written.get("likely_landed"), written["landed_candidates"][0].get("fixups")), (None, None));
 }
 
+/// A candidate by pull request keeps its number in the state, which is of version 6 for it; a state of version 5 reads
+/// on, its candidates being by identity or by changed lines
+#[test]
+fn a_candidate_by_pull_request_round_trips_in_a_state_of_version_6() {
+  let repo = TestRepo::new();
+  let head = repo.create_commit("one", "a.txt", "a\n");
+  let (git, path) = (repo.git_executor(), repo.path_str());
+  let candidate = LandedCandidate {
+    commit: head.clone(),
+    upstream: "squash".to_string(),
+    landed_with: vec!["fixup".to_string()],
+    by: CandidateBy::PullRequest(7),
+  };
+  let mut state = serde_json::to_value(session_state(&repo, &head)).unwrap();
+  state["landed_candidates"] = serde_json::to_value([&candidate]).unwrap();
+  assert_eq!(state["landed_candidates"][0]["by"], serde_json::json!({ "pull_request": 7 }));
+  store_state_json(&repo, &state);
+  assert_eq!(read_session(git, path, "main").unwrap().unwrap().state().landed_candidates, [candidate]);
+
+  state["version"] = serde_json::json!(5);
+  state["landed_candidates"] = serde_json::json!([{ "commit": head, "upstream": "squash", "landed_with": ["fixup"], "by": "changed_lines" }]);
+  store_state_json(&repo, &state);
+  let session = read_session(git, path, "main").unwrap().unwrap();
+  assert_eq!(
+    (session.state().version, session.state().landed_candidates[0].by),
+    (STATE_VERSION, CandidateBy::ChangedLines)
+  );
+}
+
 #[test]
 fn a_rename_rename_round_round_trips_in_the_state() {
   let repo = TestRepo::new();

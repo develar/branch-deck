@@ -266,6 +266,7 @@ pub(crate) fn session() -> (TableState, FactStore) {
       github_stacks: false,
       shown_reviews: BTreeMap::new(),
       closed_shown_reviews: None,
+      merged_pull_requests: Vec::new(),
     }),
   );
   let demand = Demand {

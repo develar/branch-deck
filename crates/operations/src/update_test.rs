@@ -13,7 +13,7 @@ use domain_types::fixtures::land_intent;
 use domain_types::landing::PlannedEffect;
 use domain_types::operation::{EffectStatus, Intent, OperationEvent, OperationResult, OperationStep, Outcome, Plan, RunningOperation};
 use domain_types::patronus::{PatronusAvailability, PatronusPushMode, PatronusRobotsResult};
-use domain_types::pull_request::{PullRequestAvailability, PullRequestsResult};
+use domain_types::pull_request::{MergedPullRequest, PullRequestAvailability, PullRequestsResult};
 use domain_types::rewrite::{RewriteIntent, RewriteResult, UndoKind};
 use domain_types::session::SyncReason;
 use domain_types::worktree_epoch::WorktreeEpoch;
@@ -1014,4 +1014,59 @@ async fn stop_ends_the_wait_of_a_start_behind_the_fetch_of_an_update() {
     })
     .await;
   assert_ne!(fixture.clone.head(), before, "the update went on");
+}
+
+/// branch-deck#284 through the app: the commit and the fixup of a pull request that GitHub squashed under the noreply
+/// address of the user, which neither an identity nor the changed lines pair. Update Project copies the merged pull
+/// requests of the session's listing into the core, whose check after the conflict pairs both with the merge commit of
+/// the pull request that pushed them: they drop as landed in it, and the branch moves onto the upstream
+#[tokio::test]
+async fn update_project_pairs_with_the_merged_pull_requests_of_the_session() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("f.txt", "a\nb\nc\n")]);
+  clone.create_commit_with_timestamp("(feature) feat: change b", "f.txt", "a\nB1\nc\n", Some(LOGIN_TIME));
+  clone.create_commit_with_timestamp("(feature) fixup! feat: change b", "f.txt", "a\nB2\nc\n", Some(LOGIN_TIME + 100));
+  let noreply = "1+test@users.noreply.github.com";
+  std::fs::write(upstream.path().join("f.txt"), "a\nB2\nc\n").unwrap();
+  upstream.git(&["add", "f.txt"]);
+  upstream
+    .git_executor()
+    .cmd(&["commit", "-q", "-m", "feat: change b (#1)"], upstream.path().to_str().unwrap())
+    .env(&[("GIT_AUTHOR_NAME", "Test User"), ("GIT_AUTHOR_EMAIL", noreply)])
+    .text()
+    .unwrap();
+  clone.git(&["fetch", "--quiet", "origin"]);
+  let (registry, key) = registry_of(&clone, true).await;
+  let listing = PullRequestsResult {
+    merged_pull_requests: vec![MergedPullRequest {
+      number: 1,
+      head_ref_name: "user/virtual/feature".to_owned(),
+      head_ref_oid: clone.head(),
+      merge_commit: upstream.head(),
+      merge_author_email: Some(noreply.to_owned()),
+      merged_at: 1_700_000_900,
+    }],
+    ..PullRequestsResult::unavailable(PullRequestAvailability::Available {
+      owner: "acme".to_owned(),
+      name: "monorepo".to_owned(),
+    })
+  };
+  let ticket = registry.sessions().begin(&key).await.unwrap();
+  registry.sessions().apply_facts(&key, ticket, FactResult::PullRequests(listing)).await.unwrap();
+
+  let events: Arc<dyn EventSink> = Arc::new(NoEvents);
+  let outcome = within_a_minute(Box::pin(execute_update(&registry, &key, false, None, OFFLINE.hosts(), events)))
+    .await
+    .unwrap();
+  let OperationResult::Update(result) = &outcome.result else {
+    panic!("{outcome:?}");
+  };
+  assert!(result.applied.is_some(), "{result:?}");
+  let landed: Vec<Option<String>> = result
+    .landed
+    .iter()
+    .flat_map(|branch| &branch.commits)
+    .map(|commit| commit.upstream.as_ref().map(|upstream| upstream.id.clone()))
+    .collect();
+  assert_eq!(landed, [Some(upstream.head()), Some(upstream.head())]);
+  assert_eq!(clone.head(), upstream.head());
 }

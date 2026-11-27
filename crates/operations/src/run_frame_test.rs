@@ -5,6 +5,7 @@ use crate::push::push_test::{Fixture, fixture, registry_on, test_host};
 use crate::registry::{Ahead, Answer, OperationRequest};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::operation::{Intent, OperationStep, Resource};
+use domain_types::pull_request::MergedPullRequests;
 use domain_types::repository_view::PatronusView;
 use domain_types::session::SyncReason;
 use domain_types::worktree_epoch::WorktreeEpoch;
@@ -31,8 +32,8 @@ impl SessionHost for HeldSyncHost {
     self.host.inputs(key)
   }
 
-  fn run(&self, key: &SessionKey, opened: WorktreeEpoch, reporter: RunReporter) -> SyncRun {
-    let (run, mut released) = (self.host.run(key, opened, reporter), self.released.clone());
+  fn run(&self, key: &SessionKey, opened: WorktreeEpoch, merged: Arc<dyn MergedPullRequests>, reporter: RunReporter) -> SyncRun {
+    let (run, mut released) = (self.host.run(key, opened, merged, reporter), self.released.clone());
     self.started.send_replace(true);
     Box::pin(async move {
       let _ = released.wait_for(|released| *released).await;
