@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.29.0](https://github.com/develar/branch-deck/compare/v1.28.0...v1.29.0) (2026-11-27)
+
+
+### Features
+
+* **brd-host:** a heavy run without a measure takes the measure of its program, else half of the host, not the whole host ([c2deac9](https://github.com/develar/branch-deck/commit/c2deac9d027e99d722658a9e7d08de479511daa2))
+* **brd-host:** the default group of a heavy run is the session that holds the lease, a priority orders the runs of a group, and the gate of an amended head supersedes the waiting one ([df1fc41](https://github.com/develar/branch-deck/commit/df1fc41524362cddff738934078cb93ea8d003f4)), closes [#279](https://github.com/develar/branch-deck/issues/279)
+* **safe-push:** --keep-running starts a Safe Push beside a running one of another subject that lands the same commits ([bc3bb4b](https://github.com/develar/branch-deck/commit/bc3bb4bc5cf926c3ab98d50df01ea87ead012082))
+* **shown:** a branch that landed and left the table gets its review after landing from its row of the Landed island ([88b32c6](https://github.com/develar/branch-deck/commit/88b32c6c2ab09f6e4418559460b429e10c7826b5))
+* **shown:** a review after landing is marked ahead of the landing and opens on whatever landed the branch since, a branch with its own pull request included ([8093c6f](https://github.com/develar/branch-deck/commit/8093c6fbc27089f44659de78ac3852c906501afd))
+* **shown:** a review after landing is titled "[post-merge review]" on GitHub, once, and the page shows its title without it ([115a5a6](https://github.com/develar/branch-deck/commit/115a5a6b6445eaf5003b4bd8a4ffd6da324fb838))
+* **shown:** the branches of a review after landing closed on GitHub are deleted an hour after its close ([f900284](https://github.com/develar/branch-deck/commit/f900284bae99d3b9f305b77f9dc8ff2022b2a356))
+
+
+### Bug Fixes
+
+* **e2e:** the review of an unapplied branch is split from its Reapply in the window, and the tests of an unapplied branch start from a template with docs unapplied ([7141db3](https://github.com/develar/branch-deck/commit/7141db382f6b9b94380e8b5899a07b23b2318b17))
+* **landed:** the commits that a clean replay leaves empty land as the squash their changed lines sum to ([395b0fa](https://github.com/develar/branch-deck/commit/395b0fa8340899f588138a36f4b9ec1fdefb829b)), closes [#283](https://github.com/develar/branch-deck/issues/283)
+* **push:** a long refusal of the remote keeps the toast in the window, said once without the progress of a mirror ([a9aebdc](https://github.com/develar/branch-deck/commit/a9aebdc3e7e8a0ab9d8e6b84496d5eb4c91e8373))
+* **shown:** a fix that conflicts on the commits of a review after landing takes the files as master has them after the fix, and the fixes after a conflict still apply ([4b9bf4f](https://github.com/develar/branch-deck/commit/4b9bf4f49e149d83c5dfdff7ef6731a9e5ac0136))
+* **update:** a pull request squashed by GitHub, whose later commit rewrote an earlier one, lands as the squash instead of stopping on a conflict ([b62c9c7](https://github.com/develar/branch-deck/commit/b62c9c79174126583c29e820c719f3a7dd1da54e)), closes [#265](https://github.com/develar/branch-deck/issues/265)
+
 ## [1.28.0](https://github.com/develar/branch-deck/compare/v1.27.0...v1.28.0) (2026-11-26)
 
 
