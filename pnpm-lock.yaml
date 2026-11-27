@@ -257,8 +257,8 @@ importers:
         version: 5.1.0(@types/react@19.3.0)(immer@11.2.10)(react@19.3.1)(use-sync-external-store@1.7.0(react@19.3.1))
     devDependencies:
       '@fission-ai/openspec':
-        specifier: 2.1.0
-        version: 2.1.0(@types/node@26.6.6)
+        specifier: 2.1.1
+        version: 2.1.1(@types/node@26.6.6)
       '@modelcontextprotocol/client':
         specifier: 2.4.0
         version: 2.4.0
@@ -651,8 +651,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@fission-ai/openspec@2.1.0':
-    resolution: {integrity: sha512-3mVVOU97QmRsqQQYl0Jb7XvIwWES+Jh6nMbGy1tJiQvKVVI1lD7M0PTB2gH2f/ayX4SEoVJGiLKL51Z1pkTHqw==}
+  '@fission-ai/openspec@2.1.1':
+    resolution: {integrity: sha512-GQv1xU4uLrTVJ6MfOKNIxo/BgEk+e8C/XBmjTfzd/W3LNh4v2UMAsfTdn8mjHdjDA/KjfGstwUhZedQW4hdcZQ==}
     engines: {node: '>=22.20.0'}
     hasBin: true
 
@@ -3840,7 +3840,7 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
-  '@fission-ai/openspec@2.1.0(@types/node@26.6.6)':
+  '@fission-ai/openspec@2.1.1(@types/node@26.6.6)':
     dependencies:
       '@inquirer/core': 12.1.0(@types/node@26.6.6)
       '@inquirer/prompts': 8.8.0(@types/node@26.6.6)
