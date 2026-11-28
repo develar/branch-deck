@@ -17,6 +17,10 @@
 //!   member of a type added or removed with it is the type's entry. A module and a declaration of another kind of one
 //!   key are two declarations (`fn files` replaced by `mod files;` of Rust is a removal and an addition), as the
 //!   units pair them.
+//! - **A Rust re-export** (`RustReexports`): a public Rust declaration is keyed at the path its crate passes it on at,
+//!   through each `pub use` of its module, whole or by its name, read from the files the commits change and carried to
+//!   the later commits; a move into a module the crate root re-exports keeps the forms. A `pub(crate) use` passes
+//!   nothing on; a re-export in a file no commit changes is not known.
 //! - **A widening is an addition** (`widens`, `ApiChange::widened`): a change of the reach alone to a wider one, of a
 //!   declaration no subtype may override, breaks no use; it is new API, its form before kept. The reach of an
 //!   overridable member stays a change (an override must not weaken the access of what it overrides), and so does an
@@ -42,7 +46,7 @@ use file_diffs::accio::DeclarationAt;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
 use trial_check::diff_scan::CommitDiff;
-use trial_check::symbol_dependencies::declaration_checks::{ConstructorForm, DeclarationForm, Form, ParameterForm, Surface, changed_declarations};
+use trial_check::symbol_dependencies::declaration_checks::{ConstructorForm, DeclarationForm, Form, ParameterForm, RustReexports, Surface, changed_declarations};
 use trial_check::symbol_scan::SymbolInput;
 
 /// What the reviewed commits do to a public declaration
@@ -192,6 +196,9 @@ pub fn api_changes(input: &SymbolInput, diffs: &[CommitDiff]) -> Vec<ApiChange> 
   // (key, a module) -> file -> forms: a module and a declaration of another kind of one key are two (`fn files` and
   // `mod files;` of Rust), as the units pair them (`units::pair_declarations`)
   let mut keys: BTreeMap<(String, bool), BTreeMap<String, KeyInFile>> = BTreeMap::new();
+  // the public re-exports of Rust files the commits read so far: a declaration a module of the crate root re-exports is
+  // keyed at the root
+  let mut reexports = RustReexports::default();
   for diff in diffs {
     // every rename carries the forms of its file along, also one that changes no declaration
     let renames: Vec<(&str, &str)> = diff
@@ -213,7 +220,7 @@ pub fn api_changes(input: &SymbolInput, diffs: &[CommitDiff]) -> Vec<ApiChange> 
         }
       }
     }
-    for file in changed_declarations(input, diff) {
+    for file in changed_declarations(input, diff, &mut reexports) {
       let mut touched: BTreeMap<(&str, bool), TouchedForms<'_>> = BTreeMap::new();
       for form in &file.before {
         touched.entry((&form.key, form.kind == DeclKind::Module)).or_default().0.push(form);

@@ -1,0 +1,3 @@
+- [x] psi-syntax: the reach of an import (`Import::exported`)
+- [x] `RustReexports` and the keys of `changed_declarations`
+- [x] Tests in `crates/review-plan/src/api_test.rs`

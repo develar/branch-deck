@@ -1100,3 +1100,65 @@ fn a_function_replaced_by_a_module_of_its_name_is_removed() {
   let entries: Vec<(ApiChangeKind, &str, &str)> = plan.api.iter().map(|change| (change.kind, change.name.as_str(), change.path.as_str())).collect();
   assert_eq!(entries, [(ApiChangeKind::Removed, "open", "src/lib.rs"), (ApiChangeKind::Added, "open", "src/open.rs")]);
 }
+
+/// `src/lib.rs` with `open` and `keep`, then a commit that moves `open` into `src/files.rs`, which the root declares with
+/// `lib_head` after `keep`; the plan of the move
+fn moved_into_a_module(files: &str, lib_head: &str) -> ReviewPlan {
+  let repo = TestRepo::new();
+  let keep = "pub fn keep() -> u8 {\n  1\n}\n";
+  let open = "pub fn open(path: &str) -> u8 {\n  path.len() as u8\n}\n";
+  let base = repo.create_commit("Add lib", "src/lib.rs", &format!("{keep}\n{open}"));
+  let head = repo.create_commit_with_files("Move open", &[("src/lib.rs", &format!("{lib_head}\n{keep}")), ("src/files.rs", &format!("{files}{open}"))]);
+  plan_of(&repo, None, &range(&repo, &base, &head)).unwrap()
+}
+
+/// A public declaration moved into a module the crate root passes on whole or by its name keeps the path it had: no
+/// entry, no use breaks; under an alias it is the old name removed and the new one added, and a `pub(crate) use` passes
+/// nothing on to another crate
+#[test]
+fn a_rust_declaration_moved_into_a_module_the_root_re_exports_keeps_its_path() {
+  for lib_head in [
+    "mod files;\npub use files::*;\n",
+    "mod files;\npub use files::open;\n",
+    "mod files;\npub use self::files::*;\n",
+    "mod files;\npub use crate::files::open;\n",
+  ] {
+    let plan = moved_into_a_module("use super::*;\n\n", lib_head);
+    assert_eq!(names(&plan), [], "{lib_head}");
+    assert_eq!(plan.verdict, BreakVerdict::NoUseBreaks, "{lib_head}");
+  }
+  let keys = |plan: &ReviewPlan| plan.api.iter().map(|change| (change.key.clone(), change.kind)).collect::<Vec<_>>();
+  let aliased = moved_into_a_module("", "mod files;\npub use files::open as start;\n");
+  assert_eq!(
+    keys(&aliased),
+    [(".open".to_string(), ApiChangeKind::Removed), (".start".to_string(), ApiChangeKind::Added)]
+  );
+  for lib_head in ["mod files;\npub(crate) use files::*;\n", "mod files;\n"] {
+    let plan = moved_into_a_module("", lib_head);
+    assert_eq!(
+      keys(&plan),
+      [(".open".to_string(), ApiChangeKind::Removed), ("files.open".to_string(), ApiChangeKind::Added)],
+      "{lib_head}"
+    );
+  }
+}
+
+/// The re-exports of a commit hold for the commits after it that leave the root as it is: a later change of the header
+/// of the moved declaration is one change of the path it keeps, a later change of its body none
+#[test]
+fn a_re_export_holds_for_the_later_commits_of_the_range() {
+  let repo = TestRepo::new();
+  let open = |body: &str, parameters: &str| format!("pub fn open({parameters}) -> u8 {{\n  {body}\n}}\n");
+  let base = repo.create_commit("Add lib", "src/lib.rs", &format!("pub fn keep() -> u8 {{\n  1\n}}\n\n{}", open("1", "path: &str")));
+  let lib = "mod files;\npub use files::*;\n\npub fn keep() -> u8 {\n  1\n}\n";
+  repo.create_commit_with_files("Move open", &[("src/lib.rs", lib), ("src/files.rs", &open("1", "path: &str"))]);
+  let body = repo.create_commit("Change its body", "src/files.rs", &open("2", "path: &str"));
+  let plan = plan_of(&repo, None, &range(&repo, &base, &body)).unwrap();
+  assert_eq!(names(&plan), []);
+  let header = repo.create_commit("Change its header", "src/files.rs", &open("2", "path: &str, mode: u8"));
+  let plan = plan_of(&repo, None, &range(&repo, &base, &header)).unwrap();
+  assert_eq!(
+    rows(&plan.api).into_iter().map(|row| (row.0, row.1, row.2, row.4)).collect::<Vec<_>>(),
+    [(ApiChangeKind::Changed, "open", "src/files.rs", vec![FormChange::Header])]
+  );
+}

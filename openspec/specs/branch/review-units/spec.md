@@ -459,6 +459,14 @@ where they stand.
   that is an item of its own goes where a file the commits add holds the same code as often
   [@test] crates/review-plan/src/moved_across_test.rs (`a_line_of_no_declaration_moved_into_a_new_file_goes_with_the_move`)
 
+#### Scenario: A `pub use` beside the moved code
+- **WHEN** `pub use crate::query::Enclosing;` stands beside `fn parse` in `lib.rs`, and both move into the new
+  `parsing.rs`, or the commits remove it and no file holds it again
+- **THEN** the slice of `parse` is `moved_out` where `parsing.rs` holds the `pub use`, and is read where it is gone: a
+  `pub use` the blocks remove goes with the move only where a file the commits add holds it, as the names a file passes
+  on may be API
+  [@test] crates/review-plan/src/moved_across_test.rs (`a_pub_use_goes_with_the_move_only_where_a_new_file_holds_it`)
+
 #### Scenario: A place that holds more than the move
 - **WHEN** a block removes a constant that moved nowhere beside a function that moved, a deleted file holds a function
   that moved nowhere beside one that moved, or a block adds `legacyTotal` in the place of two functions that moved

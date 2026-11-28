@@ -24,17 +24,19 @@
 //! review is computed from (openspec/specs/branch/review-plan/spec.md, crate `review-plan`). Each form says once what a review
 //! calls its declaration (`surface_of`, `Surface`): test code, an entry point, an override and what another module
 //! can't name are no API; a public declaration marked `unstable`, itself or by a declaration around it, is unstable
-//! API, whose change can break and whose addition is no new API; any other public one is API.
+//! API, whose change can break and whose addition is no new API; any other public one is API. A public Rust declaration
+//! is keyed at the path its crate passes it on at (`RustReexports`), so a move behind a `pub use` keeps its key.
 
 use crate::dangling_references::DanglingKind;
 use crate::diff_scan::CommitDiff;
 use crate::symbol_dependencies::{
   Accessor, Call, Evidence, FileCtx, Site, accepts_call, accessor_names, bare, changed_lines, changed_sites, changed_sites_named, constructor_reaches, contains, has_entries,
-  in_ranges, names, outward, receiver_of, resolve, same_entry, same_names, site_of, with_constructors,
+  in_ranges, names, outward, receiver_of, resolve, rust_path, same_entry, same_names, site_of, with_constructors,
 };
 use crate::symbol_scan::SymbolInput;
 use code_symbols::language::{Family, Language, language_of};
 use code_symbols::summary::{DeclKind, Declaration, FileSummary, ImportTarget, LineSpan, MemberKind, Reach, Reference, Role, Signature};
+use object_cache::commit_diff::FileChange;
 use std::borrow::Cow;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -588,14 +590,16 @@ pub fn spanned_declarations(input: &SymbolInput, path: &str, blob: &str) -> Opti
 
 /// The declarations each source file of `diff` touches, before and after the commit (`ChangedDeclarations`), whatever
 /// the length of their names (the checks search only names of `MIN_NAME_LENGTH`); a file whose summary is missing or
-/// degraded on a side it has is left out: its declarations are not known
-pub fn changed_declarations(input: &SymbolInput, diff: &CommitDiff) -> Vec<ChangedDeclarations> {
+/// degraded on a side it has is left out: its declarations are not known. A public Rust declaration is keyed at the path
+/// the crate passes it on at (`RustReexports`): `reexports` holds the re-exports of the commits read so far, before
+/// `diff`, and holds them after it on return
+pub fn changed_declarations(input: &SymbolInput, diff: &CommitDiff, reexports: &mut RustReexports) -> Vec<ChangedDeclarations> {
   // a side: `Some(None)` without a file, `None` a file of no known summary
   let side_of = |blob: Option<&String>| match blob {
     None => Some(None),
     Some(blob) => input.summaries.get(blob).map(AsRef::as_ref).filter(|summary| !summary.is_degraded()).map(Some),
   };
-  let mut files = Vec::new();
+  let mut sides = Vec::new();
   for change in &diff.files {
     let old_path = change.old_path.as_deref().unwrap_or(&change.path);
     let (Some(before), Some(after)) = (side_of(change.old_blob.as_ref()), side_of(change.new_blob.as_ref())) else {
@@ -603,23 +607,25 @@ pub fn changed_declarations(input: &SymbolInput, diff: &CommitDiff) -> Vec<Chang
     };
     let before = before.map(|summary| input.file_ctx(old_path, summary));
     let after = after.map(|summary| input.file_ctx(&change.path, summary));
-    let (forms_before, forms_after) = match (&before, &after) {
-      (Some(before), Some(after)) => {
-        let (added_lines, removed_lines) = changed_lines(change);
-        let mut changed: HashSet<&str> = HashSet::new();
-        for (side, ranges) in [(after, &added_lines), (before, &removed_lines)] {
-          let summary = side.summary;
-          changed.extend(changed_sites_named(side, ranges, 0).iter().map(|site| summary.name(site.declaration.name)));
-        }
-        (
-          forms_of(before, &by_key_named(before, Some(&changed), 0)),
-          forms_of(after, &by_key_named(after, Some(&changed), 0)),
-        )
-      }
-      (Some(before), None) => (forms_of(before, &by_key_named(before, None, 0)), Vec::new()),
-      (None, Some(after)) => (Vec::new(), forms_of(after, &by_key_named(after, None, 0))),
-      (None, None) => continue,
-    };
+    sides.push((change, old_path, before, after));
+  }
+  // the re-exports at the parent of the commit, as its files have them there, then at the commit
+  for (_, old_path, before, _) in &sides {
+    reexports.read(input, old_path, before.as_ref());
+  }
+  let keyed_before: Vec<Vec<DeclarationForm>> = sides
+    .iter()
+    .map(|(change, _, before, after)| side_forms(change, before.as_ref(), after.as_ref(), false, reexports))
+    .collect();
+  for (change, old_path, _, after) in &sides {
+    if *old_path != change.path {
+      reexports.read(input, old_path, None);
+    }
+    reexports.read(input, &change.path, after.as_ref());
+  }
+  let mut files = Vec::new();
+  for ((change, _, before, after), forms_before) in sides.iter().zip(keyed_before) {
+    let forms_after = side_forms(change, before.as_ref(), after.as_ref(), true, reexports);
     if forms_before.is_empty() && forms_after.is_empty() {
       continue;
     }
@@ -631,6 +637,135 @@ pub fn changed_declarations(input: &SymbolInput, diff: &CommitDiff) -> Vec<Chang
     });
   }
   files
+}
+
+/// The forms of one side of the change of a file (`after`, else before) that `changed_declarations` reads: of a file on
+/// both sides the declarations of a name declared on the changed lines of either side, of a file on one side all of
+/// them; each keyed at the path the crate passes it on at (`RustReexports::key_of`)
+fn side_forms(change: &FileChange, before: Option<&FileCtx<'_>>, after: Option<&FileCtx<'_>>, new_side: bool, reexports: &RustReexports) -> Vec<DeclarationForm> {
+  let Some(side) = (if new_side { after } else { before }) else { return Vec::new() };
+  let mut forms = match (before, after) {
+    (Some(before), Some(after)) => {
+      let (added_lines, removed_lines) = changed_lines(change);
+      let mut changed: HashSet<&str> = HashSet::new();
+      for (side, ranges) in [(after, &added_lines), (before, &removed_lines)] {
+        let summary = side.summary;
+        changed.extend(changed_sites_named(side, ranges, 0).iter().map(|site| summary.name(site.declaration.name)));
+      }
+      forms_of(side, &by_key_named(side, Some(&changed), 0))
+    }
+    _ => forms_of(side, &by_key_named(side, None, 0)),
+  };
+  for form in &mut forms {
+    if let Some(key) = reexports.key_of(side, form) {
+      form.key = key;
+    }
+  }
+  forms
+}
+
+/// A name a Rust file passes on to other crates (`Import::exported` of `Reach::Public`): every public name of a module
+/// (`pub use x::*`), or one of them under its own name or an alias (`pub use x::Name`, `pub use x::Name as Seen`). A
+/// `pub(crate) use` passes nothing on to another crate
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Reexport {
+  /// The crate root and the module path the names come from (`rust_path`)
+  crate_root: Option<String>,
+  module: Vec<String>,
+  /// `None` for every public name of the module, else the name and the name it is seen under
+  name: Option<(String, String)>,
+  /// The module of the file that passes them on, where they are seen too
+  namespace: Vec<String>,
+}
+
+/// The most re-exports a key goes through (`RustReexports::key_of`): a cycle of glob re-exports ends
+const MAX_REEXPORT_HOPS: usize = 8;
+
+/// The public re-exports of the Rust files of the commits of a range, by path, as the commits read so far have them
+/// (`changed_declarations`). A public declaration of a module that a file re-exports is keyed at the path of that file:
+/// a declaration moved from the crate root into a module the root re-exports with `pub use x::*` keeps its key, as a
+/// move between the files of one JVM package does. Only the files the commits change are read: a re-export in a file
+/// no commit of the range changes is not known
+#[derive(Debug, Default)]
+pub struct RustReexports {
+  by_file: HashMap<String, Vec<Reexport>>,
+}
+
+impl RustReexports {
+  /// Take the re-exports of the file `path` as `ctx` has them; `None` without the file
+  fn read(&mut self, input: &SymbolInput, path: &str, ctx: Option<&FileCtx<'_>>) {
+    match ctx.map(|ctx| reexports_of(input, ctx)).filter(|reexports| !reexports.is_empty()) {
+      Some(reexports) => {
+        self.by_file.insert(path.to_string(), reexports);
+      }
+      None => {
+        self.by_file.remove(path);
+      }
+    }
+  }
+
+  /// The key `form` of the file of `ctx` is seen under where the crate passes it on, through every re-export of its
+  /// module that names it, the shortest path first; `None` where it is seen at its own module alone
+  fn key_of(&self, ctx: &FileCtx<'_>, form: &DeclarationForm) -> Option<String> {
+    if !form.public || ctx.language.family() != Family::Rust || self.by_file.is_empty() {
+      return None;
+    }
+    let crate_root = ctx.crate_root.map(str::to_string);
+    let mut namespace = form.namespace.clone();
+    let mut path: Vec<String> = form.containers.iter().cloned().chain([form.name.clone()]).collect();
+    let mut seen_elsewhere = false;
+    for _ in 0..MAX_REEXPORT_HOPS {
+      let outer = self
+        .by_file
+        .values()
+        .flatten()
+        .filter(|reexport| reexport.crate_root == crate_root && reexport.module == namespace && reexport.namespace != namespace)
+        .filter_map(|reexport| match &reexport.name {
+          None => Some((&reexport.namespace, None)),
+          Some((name, seen)) => (path.first() == Some(name) && seen != "_").then_some((&reexport.namespace, Some(seen))),
+        })
+        .min_by(|(a, a_seen), (b, b_seen)| a.len().cmp(&b.len()).then_with(|| a.cmp(b)).then_with(|| a_seen.cmp(b_seen)));
+      let Some((outer, seen)) = outer else { break };
+      if let (Some(seen), Some(first)) = (seen, path.first_mut()) {
+        first.clone_from(seen);
+      }
+      namespace.clone_from(outer);
+      seen_elsewhere = true;
+    }
+    seen_elsewhere.then(|| format!("{}.{}", namespace.join("."), path.join(".")))
+  }
+}
+
+/// The public re-exports of the Rust file of `ctx` (`Reexport`)
+fn reexports_of(input: &SymbolInput, ctx: &FileCtx<'_>) -> Vec<Reexport> {
+  if ctx.language.family() != Family::Rust {
+    return Vec::new();
+  }
+  let summary = ctx.summary;
+  summary
+    .imports
+    .iter()
+    .zip(&ctx.import_paths)
+    .filter(|(import, _)| import.exported == Some(Reach::Public))
+    .filter_map(|(import, path)| {
+      let name = match import.target {
+        ImportTarget::All => None,
+        ImportTarget::Name(target) => {
+          let name = summary.name(target).to_string();
+          let seen = import.alias.map_or_else(|| name.clone(), |alias| summary.name(alias).to_string());
+          Some((name, seen))
+        }
+        ImportTarget::Default | ImportTarget::Namespace => return None,
+      };
+      let (crate_root, module) = rust_path(input, ctx, path)?;
+      Some(Reexport {
+        crate_root: crate_root.map(str::to_string),
+        module,
+        name,
+        namespace: ctx.namespace.clone(),
+      })
+    })
+    .collect()
 }
 
 /// The searches of the commits `own` of a branch (oldest first): what each removes, changes or adds. `members` are the

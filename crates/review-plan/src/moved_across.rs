@@ -32,8 +32,9 @@
 //!   (`mod x;` of a file of the change, `pub use x::*;`; `units::SourceFile::removed_alone`), and of a file the commits
 //!   delete whose every line of code is a line of an outermost declaration or of an import, is `UnitSlice::moved_out`
 //!   once each of those declarations moved (`MovedOut`, `Held`: a module of a deleted file by its members too); the
-//!   other places show it. A line of no declaration that is an item of its own (a call of a macro) goes with them where
-//!   a file the commits add holds its code as often (`MoveEnds::lines_left`). Any other slice is read where it stands.
+//!   other places show it. A line of no declaration that is an item of its own (a call of a macro, a `pub use` they
+//!   remove, which may be API) goes with them where a file the commits add holds its code as often
+//!   (`MoveEnds::lines_left`). Any other slice is read where it stands.
 //! - **Cost**: no git process and no query of the index. The tokens of a file that stays are those its fingerprints
 //!   read already; a file the commits add or delete is read only where one of its declarations has the name of a unit
 //!   `added` or `removed`, which every place of the code of that unit has.

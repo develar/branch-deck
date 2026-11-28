@@ -799,7 +799,6 @@ fn whole_file_ends(input: &SymbolInput, files: &[ChangedFile<'_>], texts: &HashM
         all.iter().any(|declaration| lines_of(declaration).contains(&line))
           || impls.iter().any(|block| (block.header.0..=block.close).contains(&line))
           || declarations.import_lines.iter().any(|span| (span.start.saturating_sub(1)..span.end).contains(&line))
-          || declarations.exported_lines.contains(&(line + 1))
       };
       let count = u32::try_from(lines.all().len()).unwrap_or(u32::MAX);
       moves
@@ -1160,13 +1159,13 @@ impl SourceFile<'_, '_> {
     if removed.is_empty() {
       return None;
     }
-    // what goes with them where the blocks are: the modules and the `impl` blocks they emptied, the imports and the
-    // names passed on beside them
+    // what goes with them where the blocks are: the modules and the `impl` blocks they emptied, and the imports beside
+    // them, which bind names for this file alone
     let imports = self.before.import_lines.iter().map(|span| span.start.saturating_sub(1)..span.end);
-    let exported = self.before.exported_lines.iter().map(|&line| line.saturating_sub(1)..line);
-    let mut gone: Vec<Range<u32>> = whole.iter().cloned().chain(parts).chain(emptied.iter().cloned()).chain(imports).chain(exported).collect();
+    let mut gone: Vec<Range<u32>> = whole.iter().cloned().chain(parts).chain(emptied.iter().cloned()).chain(imports).collect();
     // the lines the blocks remove of no declaration, no module and no `impl` that are items of their own (a call of a
-    // macro at the top of the file): they go where a file the commits add holds them (`MoveEnds::lines_left`)
+    // macro at the top of the file, a `pub use` that passes names on, which may be API): they go where a file the
+    // commits add holds them (`MoveEnds::lines_left`), else they are read
     let declared = |line: u32| {
       self.before.declarations.iter().any(|declaration| lines_of(declaration).contains(&line)) || impls.iter().any(|block| (block.header.0..=block.close).contains(&line))
     };

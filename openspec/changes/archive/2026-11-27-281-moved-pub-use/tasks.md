@@ -1,0 +1,2 @@
+- [x] `SourceFile::removed_alone` and `whole_file_ends` read a `pub use` as a line of its own
+- [x] A test in `crates/review-plan/src/moved_across_test.rs`

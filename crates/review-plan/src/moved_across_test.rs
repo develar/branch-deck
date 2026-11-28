@@ -622,3 +622,23 @@ fn a_line_of_no_declaration_moved_into_a_new_file_goes_with_the_move() {
   assert_eq!(moved_out(&plan), [], "{:#?}", plan.units);
   assert!(unit_of(&plan, LIB, "parse").moved_to.is_some());
 }
+
+/// openspec/specs/branch/review-units/spec.md, "Units: The place a move left is nothing to read where it holds the move
+/// alone": a `pub use` beside a function moved into a new file goes with it where the new file passes the same names
+/// on; a `pub use` the commits remove and no file holds again may be API that is gone, so the place it left is read
+#[test]
+fn a_pub_use_goes_with_the_move_only_where_a_new_file_holds_it() {
+  let repo = TestRepo::new();
+  let parse = "pub fn parse(text: &str) -> u32 {\n    text.len() as u32\n}\n";
+  let reexport = "pub use crate::query::Enclosing;\n";
+  let base = repo.create_commit_with_files("Add the lib", &[(LIB, &[VALUE, reexport, parse].join("\n"))]);
+  let lib = format!("mod parsing;\npub use parsing::*;\n\n{VALUE}");
+  let moved = repo.create_commit_with_files("Parse apart", &[(LIB, &lib), ("src/parsing.rs", &format!("use super::*;\n\n{reexport}\n{parse}"))]);
+  let read = plan(&repo, &base, &moved);
+  assert_eq!(moved_out(&read), [(UnitKind::Removed, Some("parse".to_string()), LIB.to_string())], "{:#?}", read.units);
+  repo.git(&["reset", "-q", "--hard", &base]);
+  let dropped = repo.create_commit_with_files("Parse apart, Enclosing gone", &[(LIB, &lib), ("src/parsing.rs", &format!("use super::*;\n\n{parse}"))]);
+  let plan = plan(&repo, &base, &dropped);
+  assert_eq!(moved_out(&plan), [], "{:#?}", plan.units);
+  assert!(unit_of(&plan, LIB, "parse").moved_to.is_some());
+}

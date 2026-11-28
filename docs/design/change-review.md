@@ -297,6 +297,7 @@ the review.
 | Openings of the groups | Landed | this change | each group of a module or a folder of a large step opens above its first card, in place of its divider: its name, "New module", "also shared/code", the tests of the change that reach its code and its code none reaches (`StepGroup.tested`, from the same answer of accio as the step, schema 28), its new API by name, what it opens wider, its new uses between modules by direction ("Now uses view.gui (32 links)", "Now used by view.gui.media"), what its module registers, its texts of the UI; the opening of the step keeps its story and its contract, the wall of 26 test files and 50 names of step 1 of IJAI-5083 goes to the groups where that code is | the entry points of a new module (JetBrains/accio#541) are not named yet, nor do they order its group |
 | What enters a new module | Landed | this change, JetBrains/accio#541 | the declarations of a module the change adds that something outside it uses, from `accio surface` at the head (one process for every new module, a budget of 15 s, beside the usages and the tests; `ModuleShape.entries`, schema 29): its group opens with "Entered by TranscriptEmbedPlayersImpl (applicationService of TranscriptEmbedPlayers)" and reads from that file on; on idea-1 IJAI-5083 (#1512) the one entry of view.gui.media, complete; a module nothing enters says so | a module the change changes is not asked; the budget can cut a large new module (`complete: false`, said in the opening) |
 | What a range leaves to read, read ahead in Your Turn | Landed | 316b12d76, this change | each row and stack header says what its request leaves to read before any window opens, one read of every waiting request a listing names (one fetch, one `rev-parse`, one `diff-tree`), the final readings on disk | the read ahead asks no index (JetBrains/accio#777): a rename across files waits for a window |
+| A Rust re-export keeps the path of the API | Landed | this change, develar/branch-deck#281 | the split of accio's `crates/search/src/lib.rs` into modules the root passes on (`mod scope; pub use scope::*;`) listed 40 public functions as removed from the root and added to their modules, `breaks`, as the key of a Rust declaration is the module path of its file; a public declaration is now keyed at the path its crate passes it on at, through each `pub use` of its module, whole or by its name (`RustReexports`), carried from commit to commit of the range, and the four plans of the split say `noUseBreaks` with no entry; the reach of a glob `use` comes from psi-syntax (`Import::exported`), so a `pub(crate) use x::*` passes nothing on | a re-export in a file no commit of the range changes is not known (the summaries are of the blobs of the diffs alone); a public declaration of a private module that nothing re-exports still reads as API of its module path |
 | An agent reviews by the plan | Landed in the skill | this change | the skill `branch-deck` teaches an agent asked to review a commit, a branch or a range the order of the plan: `reading` first (nothing to read is the report), the `units` in their order, the mechanical ones passed, a move read where it stands now, no removal skipped, the changes of behaviour alone reported, or that there is none; its test reads the kinds of the units from the schema of the output | `reading` is summed by role: a unit whose every line the reading passes (a body changed in a rename the index proved) is read all the same; the marks of each line are no output of `brd` |
 | LLM tour with a hard coverage gate | Not started: the author's tour (`brd tour`) first | | | |
 | Corpus evaluation (ranks of the hunks reviewers needed, false folds) | Not started | | | the main debt |
@@ -741,7 +742,9 @@ the review.
      (an inline `mod tests` made `mod tests;`) goes with them too, and the methods of a removed type go with it.
    - A block that removes the moved code and adds `mod answer; pub use answer::*;` belonged to the added module, and
      the removed declarations had no block. Such lines are the skeleton of the move (a module whose file is one of the
-     change, an import, a name passed on), and the block is the move alone held by the module's unit.
+     change, an import, a name passed on), and the block is the move alone held by the module's unit. A `pub use` the
+     block removes goes with the move only where a file the change adds holds it, as a call of a macro does: it may be
+     API, and one that went nowhere is read.
    - A test of `mod tests` was no place of a move in a new or deleted file: the places are now the declarations that
      stand in modules alone, the members of a type still part of it, and a deleted file holds a module of no code of
      its own by its members.
@@ -756,8 +759,8 @@ the review.
      own (its brackets close on it, it ends with `;`) goes with the move where a file the change adds holds the same
      code as often.
    A new file of moved code alone is still read once, at its new place (decision 36); the decision of the user. What
-   stays read: a module renamed on the way (`scope_shape_tests`), and the API of a re-export, which the card reads by
-   the key of the file the code went to (until the plan follows `pub use`). Measured in
+   stays read: a module renamed on the way (`scope_shape_tests`); the API follows `pub use` since (decision "A Rust
+   re-export keeps the path of the API" of the table above). Measured in
    [A file split into modules](#a-file-split-into-modules).
 
 ## Review Rounds
@@ -833,8 +836,8 @@ The one removal of `297a67b7f` and of the range without `moved_to` is the module
 way, whose block is read. The removals more than before are the functions that a module of their name took the place
 of (`fn files`, `fn lines`, `fn scan` and `fn candidates_answer`), units of their own now, which the pair with the
 module hid, and the modules are `added` units beside them. Every other block of `lib.rs` is the move alone but the first block of `297a67b7f`, which adds the
-`mod x; pub use x::*;` lines alone and is read once there; in the range, the block of `scope_shape_tests`. The verdict
-stays `breaks` until the API follows `pub use`.
+`mod x; pub use x::*;` lines alone and is read once there; in the range, the block of `scope_shape_tests`. With the API
+that follows `pub use`, the four plans say `noUseBreaks` with no entry of `api`.
 
 ### What was lost
 
