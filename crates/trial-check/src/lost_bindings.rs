@@ -507,7 +507,7 @@ fn bindings_of(summary: &FileSummary) -> BTreeMap<&str, Binding> {
   let own_package: Option<Vec<&str>> = summary.package.as_deref().map(|package| package.split('.').collect());
   for (index, import) in summary.imports.iter().enumerate() {
     let ImportTarget::Name(target) = import.target else { continue };
-    if import.exported {
+    if import.exported.is_some() {
       continue;
     }
     let path: Vec<&str> = import.path.iter().map(|id| summary.name(*id)).collect();

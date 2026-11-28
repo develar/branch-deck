@@ -98,13 +98,13 @@ axum = "0.8.9"
 # against it): a change of one of them is a commit of accio, then the mirror, then this revision, which makes the
 # stored diffs and summaries again (docs/contributing/rust-rules.md#the-crates-of-psi-syntax). The parsers come through
 # `code-symbols` and `code-tokens`, each with every language (its default features)
-bazel-build = { git = "https://github.com/develar/psi-syntax", rev = "00c0082f069bb2228dc0ccb082bc91c014f59d63" }
-code-symbols = { git = "https://github.com/develar/psi-syntax", rev = "00c0082f069bb2228dc0ccb082bc91c014f59d63" }
-code-tokens = { git = "https://github.com/develar/psi-syntax", rev = "00c0082f069bb2228dc0ccb082bc91c014f59d63" }
-diff-marks = { git = "https://github.com/develar/psi-syntax", rev = "00c0082f069bb2228dc0ccb082bc91c014f59d63" }
-js-syntax = { git = "https://github.com/develar/psi-syntax", rev = "00c0082f069bb2228dc0ccb082bc91c014f59d63" }
-line-diff = { git = "https://github.com/develar/psi-syntax", rev = "00c0082f069bb2228dc0ccb082bc91c014f59d63" }
-spec-syntax = { git = "https://github.com/develar/psi-syntax", rev = "00c0082f069bb2228dc0ccb082bc91c014f59d63" }
+bazel-build = { git = "https://github.com/develar/psi-syntax", rev = "ffcf9f57c33290ab5aec9c40cef68f917c794812" }
+code-symbols = { git = "https://github.com/develar/psi-syntax", rev = "ffcf9f57c33290ab5aec9c40cef68f917c794812" }
+code-tokens = { git = "https://github.com/develar/psi-syntax", rev = "ffcf9f57c33290ab5aec9c40cef68f917c794812" }
+diff-marks = { git = "https://github.com/develar/psi-syntax", rev = "ffcf9f57c33290ab5aec9c40cef68f917c794812" }
+js-syntax = { git = "https://github.com/develar/psi-syntax", rev = "ffcf9f57c33290ab5aec9c40cef68f917c794812" }
+line-diff = { git = "https://github.com/develar/psi-syntax", rev = "ffcf9f57c33290ab5aec9c40cef68f917c794812" }
+spec-syntax = { git = "https://github.com/develar/psi-syntax", rev = "ffcf9f57c33290ab5aec9c40cef68f917c794812" }
 # The LMDB environment of the object cache, shared with accio (decision 2026-11-09-lmdb-env-in-psi-syntax of accio), at
 # a revision of its own: it moves apart from the one above, which keys the cached summaries, so a fix of the
 # environment makes no summary again

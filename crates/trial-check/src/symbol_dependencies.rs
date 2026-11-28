@@ -358,7 +358,13 @@ fn aliases_of<'a>(roots: &ModuleRoots, aliases: &'a HashMap<String, Vec<Aliases>
 /// it names, not instead of it (`of_kind`). A `pub use` re-exports, so a use through it means it as a declaration
 fn is_private_binding(site: &Site<'_>) -> bool {
   let declaration = site.declaration;
-  declaration.kind == DeclKind::Binding && !site.ctx.summary.imports.iter().any(|import| import.exported && import.line == declaration.name_line)
+  declaration.kind == DeclKind::Binding
+    && !site
+      .ctx
+      .summary
+      .imports
+      .iter()
+      .any(|import| import.exported.is_some() && import.line == declaration.name_line)
 }
 
 /// The candidates of a name of one kind: the declarations and the re-exports, one of which a use means, or the private

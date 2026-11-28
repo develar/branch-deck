@@ -107,7 +107,7 @@ fn is_capitalized(name: &str) -> bool {
 fn plain_imports(summary: &FileSummary) -> BTreeMap<&str, Vec<&str>> {
   let own_package: Vec<&str> = summary.package.as_deref().map_or_else(Vec::new, |package| package.split('.').collect());
   let mut imports = BTreeMap::new();
-  for import in summary.imports.iter().filter(|import| import.alias.is_none() && !import.exported) {
+  for import in summary.imports.iter().filter(|import| import.alias.is_none() && import.exported.is_none()) {
     let ImportTarget::Name(target) = import.target else { continue };
     let path: Vec<&str> = import.path.iter().map(|id| summary.name(*id)).collect();
     if path == own_package || is_default_package(summary.language, &path) {

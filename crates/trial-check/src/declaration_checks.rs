@@ -582,7 +582,7 @@ pub fn spanned_declarations(input: &SymbolInput, path: &str, blob: &str) -> Opti
   Some(FileDeclarations {
     declarations,
     import_lines: summary.import_lines.clone(),
-    exported_lines: summary.imports.iter().filter(|import| import.exported).map(|import| import.line).collect(),
+    exported_lines: summary.imports.iter().filter(|import| import.exported.is_some()).map(|import| import.line).collect(),
   })
 }
 
