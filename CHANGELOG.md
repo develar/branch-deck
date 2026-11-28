@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.31.0](https://github.com/develar/branch-deck/compare/v1.30.0...v1.31.0) (2026-11-28)
+
+
+### Features
+
+* **review:** a Rust declaration moved into a module the crate root re-exports keeps its path in the API ([9a7681c](https://github.com/develar/branch-deck/commit/9a7681c14ad999345dc6aecf7707e4c6e3f77161)), closes [#281](https://github.com/develar/branch-deck/issues/281)
+
+
+### Bug Fixes
+
+* **review:** a file split into modules reads as moves, its old places the move alone ([1d591c1](https://github.com/develar/branch-deck/commit/1d591c13b30990afd99636d595698bb430e10e11))
+
 ## [1.30.0](https://github.com/develar/branch-deck/compare/v1.29.0...v1.30.0) (2026-11-27)
 
 
